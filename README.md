@@ -1,88 +1,60 @@
-###### Note: I am currently seeking an arXiv endorser in the cs.IR and cs.AI category for the formal preprint of this paper. If you are eligible and find this work valuable, please reach out or endorse directly at https://urldefense.com/v3/__https://arxiv.org/auth/endorse?x=OVESPR__;!!DaRZpAeNFA!bDQ8GlkoWQn5HCz0RtmrPvpR_l4miMk56L2WuvsMq0eBQiWcGhq05BYb-bQV0b13Ewtg7RMYyl0fmLttsZM$!
-
----
-
-# GOG Benchmark (Graph-Oriented Generation)
-
-This repository evaluates the efficiency of **Symbolic Reasoning Model (SRM)** context isolation (GOG) compared to standard **Retrieval-Augmented Generation (RAG)** for large codebase understanding.
-
-## Architecture
-
-*   **Python Engine:** Orchestrates the benchmark, parses the codebase, and interacts with the LLM API.
-*   **SRM Engine:** Uses `networkx` to build a dependency graph of the codebase and isolate relevant files for a given prompt.
-*   **Benchmark Harness:** A/B tests the context load and execution time between a full codebase dump (RAG) and isolated context (GOG).
+###### Note: This is my first time actively maintaining a public repo so bear with me if you are contributing! I am open to suggestions on structure, but do want to make sure chaos is managed well. Send me a DM if you have suggestions
 
 ## 🛑 Current Status
 
 **Active Research Prototype — Contributions Welcome**
 
-> **Update:** Thank you for the incredible response on Hacker News and Reddit!  
-> The project reached **20+ stars and multiple forks within the first 24 hours.**
+Thank you to everyone who checked out the project after the Hacker News and Reddit posts.  
+The repository reached **24+ stars and 3 forks within the first day**, which is very encouraging for an early research prototype.
 
-GOG is currently an **active research prototype** (Paper #2 in progress).  
-My limited development time is focused on advancing the **core mathematical engine**, specifically:
+GOG is currently under active development as part of an ongoing research effort (Paper #2 in progress). My primary focus right now is continuing work on the **core mathematical engine**, particularly:
 
-- **$O(1)$ plasticity**
-- **deterministic traversal**
+- deterministic dependency traversal
+- $O(1)$ plasticity concepts
 
-If you're interested in helping build the surrounding ecosystem, **community contributions are highly encouraged.**
+Because of that, development time is mostly concentrated on the core algorithm and benchmark framework.
 
-If the idea of helping **challenge traditional Vector RAG architectures** sounds interesting, take a look at the open issues.
+However, the surrounding ecosystem is intentionally open for collaboration. If you're interested in helping expand the project — whether through additional language parsers, benchmarking, or tooling improvements — contributions are very welcome.
 
----
-
-## 🗺️ Roadmap & Areas for Contribution
-
-Below are several areas where contributions would have a meaningful impact.
-
-### 🌍 Language Expansion
-
-The **SRM AST parser** is currently optimized for:
-
-- Python
-- TypeScript
-
-Additional language support would be valuable for:
-
-- Go
-- Rust
-- Java
+Open issues highlight areas where help would be especially valuable.
 
 ---
 
-### 🧪 Model Benchmarking
+# GOG Benchmark (Graph-Oriented Generation) v 0.0.3
 
-The current benchmark suite focuses on **Qwen 0.8B**.
+GOG explores whether **dependency graph traversal can replace vector retrieval**
+for codebase reasoning in LLM workflows.
 
-Next steps include expanding the benchmark gauntlet to evaluate:
+This repository evaluates the efficiency of **Symbolic Reasoning Model (SRM)** context isolation (GOG) compared to standard **Retrieval-Augmented Generation (RAG)** for large codebase understanding.
 
-- **Llama 3 (8B)**
-- **Mistral variants**
-- additional lightweight models
+## Architecture
 
----
+The benchmark consists of three core components:
 
-### 🖥 CLI & Benchmark Output
+*   **Python Engine:** Orchestrates the benchmark, parses the codebase, and interacts with the LLM API.
+*   **SRM Engine:** Uses `networkx` to build a dependency graph of the codebase and isolate relevant files for a given prompt.
+*   **Benchmark Harness:** A/B tests the context load and execution time between a full codebase dump (RAG) and isolated context (GOG).
 
-Improving the **terminal output and visualization** of benchmark results, particularly:
+## Architecture Overview
 
-- clearer **$O(1)$ speed comparisons**
-- more intuitive **token reduction metrics**
-- improved CLI readability for rapid experimentation
+User Prompt
+     │
+     ▼
+Dependency Graph (SRM)
+     │
+deterministic traversal
+     │
+     ▼
+Relevant Files Only
+     │
+     ▼
+LLM Context Window
 
----
-
-If you're interested in contributing, feel free to:
-
-- open a PR
-- comment on an issue
-- suggest improvements to the roadmap
-
-All help is appreciated!
-
----
+###### Note: I am currently seeking an arXiv endorser in the cs.IR and cs.AI category for the formal preprint of this paper. If you are eligible and find this work valuable, please reach out or endorse directly at https://urldefense.com/v3/__https://arxiv.org/auth/endorse?x=OVESPR__;!!DaRZpAeNFA!bDQ8GlkoWQn5HCz0RtmrPvpR_l4miMk56L2WuvsMq0eBQiWcGhq05BYb-bQV0b13Ewtg7RMYyl0fmLttsZM$!
 
 ## Setup
+
+Setup takes ~2–3 minutes on a typical machine.
 
 1.  **Install Dependencies:**
     ```bash
