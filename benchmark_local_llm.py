@@ -13,7 +13,7 @@ from srm_engine import ast_parser, graph_search
 console = Console()
 
 class OllamaClient:
-    def __init__(self, model="qwen3.5:0.8b"):
+    def __init__(self, model="qwen2.5:0.5b"):
         self.model = model
         self.api_url = "http://localhost:11434/api/generate"
 
@@ -50,7 +50,8 @@ class OllamaClient:
             "prompt": full_prompt,
             "stream": False,
             "options": {
-                "num_ctx": 32768
+                "num_ctx": 4096,
+                "num_gpu": 0  # Force CPU to avoid VRAM allocation errors on low-end GPUs
             }
         }).encode("utf-8")
         
@@ -62,10 +63,18 @@ class OllamaClient:
                 if not response_text:
                     return "[Error: Model returned an empty string. The retrieved RAG context likely exceeded the model's absolute maximum context window (Context Collapse).]"
                 return response_text
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode("utf-8")
+            try:
+                error_json = json.loads(error_body)
+                error_msg = error_json.get("error", error_body)
+            except:
+                error_msg = error_body
+            return f"API Error: {self.model} failed with 500. Message: {error_msg}"
         except urllib.error.URLError as e:
             return f"API Error: Ensure Ollama is running and {self.model} is pulled. ({e})"
 
-client = OllamaClient(model="qwen3.5:0.8b")
+client = OllamaClient(model="qwen2.5:0.5b")
 
 def get_token_count(files):
     """Estimate tokens based on word count of files."""

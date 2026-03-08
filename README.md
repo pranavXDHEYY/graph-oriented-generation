@@ -86,21 +86,24 @@ python3 benchmark_cloud_cli.py
 ```
 
 ### 2. Local SLM Execution (Ollama)
-Use this method to prove that GOG is so efficient that it can run entirely on local resources using small models like `qwen`. This removes API latency and costs completely.
+Use this method to prove that GOG is so efficient that it can run entirely on local resources using super-small models. This removes API latency and costs completely.
 
 **Install Ollama & Prepare the Model:**
-1. Download mapping and install Ollama from [ollama.com](https://ollama.com) or run:
+1. Download and install Ollama from [ollama.com](https://ollama.com) or run:
    ```bash
    curl -fsSL https://ollama.com/install.sh | sh
    ```
-2. Pull the specified local LLM (e.g. `qwen3.5:0.8b` or whichever you prefer):
+2. Pull the recommended lightweight model:
    ```bash
-   ollama pull qwen3.5:0.8b
+   ollama pull qwen2.5:0.5b
    ```
 3. Run the local benchmark:
    ```bash
    python3 benchmark_local_llm.py
    ```
+
+> [!TIP]
+> The local benchmark is configured to force CPU execution by default (`num_gpu: 0`). This ensures stability on machines with low VRAM (e.g., < 4GB) and avoids "CUDA out of memory" or internal server errors during benchmarking.
 
 ## Expected Results
 
