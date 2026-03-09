@@ -1,5 +1,11 @@
-import time
 import os
+# ── Silence TF/CUDA/tokenizer noise before any heavy imports ──────────────────
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")          # suppress CUDA factory spam
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")         # suppress oneDNN warnings
+os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")    # suppress fork deadlock warning
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")  # fix MessageFactory AttributeError
+# ─────────────────────────────────────────────────────────────────────────────
+import time
 import json
 import urllib.request
 import urllib.error
@@ -10,7 +16,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from srm_engine import ast_parser, graph_search
 from srm_engine.salience_evaluator import SalienceEvaluator
-
+from srm_engine.token_utils import count_tokens_in_files as get_token_count
 console = Console()
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -108,16 +114,6 @@ client = OllamaClient(model="qwen2.5:0.5b")
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_token_count(files):
-    """Estimate tokens based on word count of files."""
-    count = 0
-    for f in files:
-        if os.path.exists(f):
-            with open(f, "r", encoding="utf8") as content:
-                count += len(content.read().split())
-    return count
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Tier 1 — Control: Vector RAG
 # ─────────────────────────────────────────────────────────────────────────────
@@ -130,7 +126,7 @@ def run_control_pipeline(prompt, repo_path):
     if not os.path.exists(db_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: ChromaDB not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import chromadb
     client_db = chromadb.PersistentClient(path=db_path)
@@ -159,7 +155,7 @@ def run_control_pipeline(prompt, repo_path):
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": 0}
+            "patches_applied": 0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -178,7 +174,7 @@ def run_srm_pipeline_vanilla(prompt, repo_path):
     if not os.path.exists(graph_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: Graph not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import pickle
     with open(graph_path, "rb") as f:
@@ -199,7 +195,7 @@ def run_srm_pipeline_vanilla(prompt, repo_path):
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": 0}
+            "patches_applied": 0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -208,10 +204,10 @@ def run_srm_pipeline_vanilla(prompt, repo_path):
 
 def run_srm_pipeline_membrane(prompt, repo_path):
     """
-    Tier 3 — GOG + Neuro-Symbolic Membrane (Rejection Sampling).
+    Tier 3 — GOG + Neuro-Symbolic Membrane (Deterministic Patch).
 
     ── What is the Neuro-Symbolic Membrane? ────────────────────────────────────
-    The term "Neuro-Symbolic" describes a hybrid AI architecture that combines:
+    The term "Neuro-Symbolic" describes a hybrid AI system combining:
 
       • "Neuro"   — the neural LLM, which is creative and stochastic.  It can
                     write elegant code, synthesize patterns, and generalise from
@@ -224,31 +220,22 @@ def run_srm_pipeline_membrane(prompt, repo_path):
                     every edge represents a real `import` statement extracted by
                     our tree-sitter AST parser.
 
-    The SalienceEvaluator acts as the "Membrane" between them.  After every LLM
-    generation, it:
+    The SalienceEvaluator acts as the "Membrane" between them.  After the single
+    LLM generation call, it:
       1. Extracts all proposed import statements from the LLM's output.
       2. Checks each local import against the set of files that the DAG actually
          isolated as relevant (the `allowed_nodes`).
       3. Accepts   → passes the response downstream if all imports are legal.
-      4. Rejects   → if any import falls outside the topological boundary it
-                    builds a structured error message that names the illegal
-                    imports, injects it back into the prompt, and re-calls the
-                    LLM (Rejection Sampling).
+      4. Patches   → if any import falls outside the topological boundary, the
+                    SRM graph resolves the correct path deterministically and
+                    performs a surgical string substitution.  No second LLM call.
+                    No extra tokens.  The graph is the ground truth.
 
-    ── What is Rejection Sampling? ─────────────────────────────────────────────
-    Rejection Sampling is a Monte Carlo technique: draw a sample from a
-    distribution, test it against a constraint, discard it if it fails, and
-    draw again.  Here the "distribution" is the LLM's generative output space
-    and the "constraint" is the symbolic import graph.  The LLM is trapped in
-    a feedback loop until it produces a topologically valid response or exhausts
-    `max_attempts`.  The structured feedback on each rejection plants the correct
-    file names in the next prompt, steering the model toward compliance.
-
-    ── Why does this guarantee topological safety? ──────────────────────────────
-    Because the DAG itself is the ground truth.  No matter how creative (or
-    wrong) the LLM is, the Membrane's accept/reject decision is made purely by
-    the deterministic graph.  The LLM provides creativity; the SRM provides
-    correctness.  Neither alone is sufficient.
+    ── Why is patching superior to rejection sampling? ──────────────────────────
+    Rejection sampling asks the LLM to *guess* the correct import path on its
+    next attempt.  Patching *knows* the correct path — it's already in
+    `allowed_nodes`, derived from the deterministic DAG.  Why guess when you
+    have the answer?  One LLM call.  Always.
     """
     start_time = time.time()
 
@@ -256,7 +243,7 @@ def run_srm_pipeline_membrane(prompt, repo_path):
     if not os.path.exists(graph_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: Graph not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import pickle
     with open(graph_path, "rb") as f:
@@ -267,53 +254,42 @@ def run_srm_pipeline_membrane(prompt, repo_path):
     local_time = time.time() - start_time
 
     api_start = time.time()
-    rejection_attempts = 0
+    patches_applied = 0
 
     if not client.is_present:
         time.sleep(0.5)
         response = "Mocked GOG+Membrane result (Ollama is not running)"
     else:
         evaluator = SalienceEvaluator(allowed_nodes=isolated_files)
-        max_attempts = 3
-        current_prompt = prompt
-        raw_response = ""
 
-        while rejection_attempts < max_attempts:
-            # In a real scenario, temperature can be cranked here since the
-            # Membrane handles topological safety.
-            raw_response = client.complete(current_prompt, context_files=isolated_files)
+        # ── Single LLM call — the graph corrects, not the LLM ─────────────
+        raw_response = client.complete(prompt, context_files=isolated_files)
+        result = evaluator.evaluate(raw_response)
 
-            # ── The Membrane Test ──────────────────────────────────────────
-            result = evaluator.evaluate(raw_response)
-
-            if result.is_valid:
-                response = raw_response
-                break
-            else:
-                # Rejection Sampling: structured feedback so the LLM can self-correct
+        if result.is_valid:
+            response = raw_response
+        else:
+            patches_applied = len(result.violations)
+            if patches_applied > 0:
                 console.print(
-                    f"[bold yellow][SalienceEvaluator] Attempt {rejection_attempts + 1}/{max_attempts} rejected:[/bold yellow] "
-                    f"{result.reason}"
+                    f"[bold cyan][SRM Membrane] Patching {patches_applied} "
+                    f"topological violation(s) deterministically (no retry):[/bold cyan] "
+                    + ", ".join(f"'{v}'" for v in result.violations)
                 )
-                current_prompt = (
-                    f"{prompt}\n\n"
-                    f"[SYSTEM FEEDBACK: Your previous attempt failed validation: "
-                    f"{result.reason}. Please rewrite the code to comply with "
-                    f"these topological boundaries.]"
-                )
-                rejection_attempts += 1
-
-        if rejection_attempts == max_attempts:
-            response = (
-                f"[SRM Rejection] The LLM failed to generate topologically valid "
-                f"code after {max_attempts} attempts.\n\nLast output:\n{raw_response}"
-            )
+            patched_code = evaluator.patch(result)
+            if patched_code and patched_code.strip():
+                import re as _re
+                lang_match = _re.search(r"```(typescript|ts|vue)", raw_response, _re.IGNORECASE)
+                fence_lang = lang_match.group(1).lower() if lang_match else "ts"
+                response = f"```{fence_lang}\n{patched_code}\n```"
+            else:
+                response = raw_response
 
     api_time = time.time() - api_start
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": rejection_attempts}
+            "patches_applied": patches_applied}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -383,10 +359,10 @@ def print_results(rag_m, vanilla_m, membrane_m, prompt_text):
 
     # ── Membrane rejection attempts ─────────────────────────────────────────
     table.add_row(
-        "Rejection Attempts (Membrane)",
+        "Topological Patches (Membrane)",
         "—",
         "—",
-        str(membrane_m["rejection_attempts"]),
+        str(membrane_m["patches_applied"]),
     )
 
     console.print(table)
@@ -420,7 +396,7 @@ def print_results(rag_m, vanilla_m, membrane_m, prompt_text):
         verdict = (
             f"[bold green]WINNER: GOG + Membrane (Tier 3)[/bold green]\n"
             f"Reduced context load by {token_pct_mem:.1f}% vs RAG.\n"
-            f"Membrane triggered [bold]{membrane_m['rejection_attempts']}[/bold] correction(s) "
+            f"Membrane triggered [bold]{membrane_m['patches_applied']}[/bold] correction(s) "
             f"to enforce topological safety."
         )
         console.print(Panel(verdict, title="Verdict", border_style="green"))

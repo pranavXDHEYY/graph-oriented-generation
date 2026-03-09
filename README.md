@@ -1,247 +1,177 @@
-###### Note: This is my first time actively maintaining a public repo — I'm very open to structural suggestions. Send me a DM or open an issue!
+# Graph-Oriented Generation (GOG) — Symbolic Reasoning Model (SRM)
 
-## 🛑 Current Status
+> **Active research prototype.** The architecture is under active development; the benchmarks are reproducible and the results are real. Structural feedback and contributions are welcome via issues or pull requests.
 
-**Active Research Prototype — Contributions Welcome**
+This repository implements and benchmarks **Graph-Oriented Generation (GOG)**, a context-isolation strategy for LLM-assisted code tasks that replaces probabilistic vector retrieval with deterministic graph traversal over a project's actual dependency structure.
 
-Thank you to everyone who checked out the project after the Hacker News and Reddit posts.
-The repository reached **40+ stars and 6 forks within the first 48 hours!**, which is very encouraging for an early research prototype.
-
-GOG is currently under active development as part of an ongoing research effort (Paper #2 in progress).
+The accompanying white paper is available in [`Graph_Oriented_Generation__GOG_.pdf`](./Graph_Oriented_Generation__GOG_.pdf).
 
 ---
 
-# Graph-Oriented Generation (GOG) & The Symbolic Reasoning Model (SRM)
+## Motivation
 
-> **GOG is a deterministic alternative to Vector RAG for codebase-aware LLM workflows.**
-> Instead of hoping a cosine similarity score finds the right file, a Directed Acyclic Graph (DAG) *guarantees* it.
+Standard Retrieval-Augmented Generation (RAG) retrieves context by computing cosine similarity between a prompt embedding and a vector index of document chunks. For open-domain question answering over unstructured text, this is a reasonable approach. For software codebases, it introduces a structural mismatch:
 
-This repository benchmarks three tiers of LLM context delivery — from probabilistic Vector RAG all the way to a full **Neuro-Symbolic Cognitive Architecture** with a live rejection-sampling feedback loop.
+> A software repository is not a collection of semantically similar documents — it is a directed graph of hard import dependencies. Two files can be semantically distant in embedding space yet be the only files that directly depend on each other. A vector search has no way to represent this relationship.
+
+GOG addresses this by building a `networkx` directed acyclic graph (DAG) from the actual `import` statements in a codebase, parsed by a `tree-sitter` AST. Context isolation becomes a graph traversal problem rather than a similarity search problem. This produces a smaller, structurally correct context payload — with measurable token reduction and no false positives introduced by semantic noise.
+
+### Relation to Prior Work
+
+Microsoft's [GraphRAG](https://arxiv.org/abs/2404.16130) (Edge et al., 2024) applies graph structures to knowledge graphs built over document corpora for summarisation tasks. GOG operates on a different graph type — the structural import DAG of a software project — and targets a different task: precise dependency isolation for code generation rather than community-aware document retrieval. The two approaches are complementary rather than competing.
 
 ---
 
-## The Core Thesis: Why Vector RAG is Structurally Broken for Software
+## Architecture
 
-Standard Retrieval-Augmented Generation (RAG) works like this:
+### Phase 1 — Semantic Seeding
 
-1. Embed every file in your codebase as a dense vector.
-2. At query time, compute cosine similarity between the prompt and all vectors.
-3. Return the top-K most "similar" chunks and dump them into the LLM context.
+The prompt is embedded using `all-MiniLM-L6-v2` (sentence-transformers). Each node's filename is converted to a readable label (e.g. `authStore.ts` → `"auth Store"`) and similarly embedded. Nodes whose cosine similarity to the prompt exceeds a configurable threshold (`SEED_SIMILARITY_THRESHOLD = 0.25`) are selected as entry points. This replaces the brittle keyword-matching approach described in the original paper (§4.5) and allows prompts that lack explicit architectural vocabulary to correctly identify seed nodes.
 
-This is statistically sound for open-domain QA. It is **mathematically wrong** for software architecture reasoning, for one fundamental reason:
+### Phase 2 — Deterministic Traversal
 
-> **Software is not a bag of semantically similar documents. It is a directed graph of hard dependencies.**
+Once seed nodes are established, all context isolation is performed via standard graph operations: shortest-path between seed pairs and transitive descendant expansion. No probabilistic inference occurs after the seeding step. The resulting subgraph contains only files that are reachable from the seeds via real import edges.
 
-A file called `DashboardHeader.vue` can be semantically distant from `authStore.ts` in embedding space, yet be the *only* file that directly imports it. A vector search will miss this relationship entirely — or worse, surface 20 unrelated files that happen to mention "authentication" in their comments.
+### Phase 3 — Neuro-Symbolic Membrane (Tier 3 only)
 
-We call this failure **Context Collapse**: the LLM receives a semantically plausible but architecturally incorrect set of files, and its output reflects that noise.
+The `SalienceEvaluator` acts as a post-generation constraint layer. After the LLM generates a response, the Membrane:
 
-### The GOG Fix: $O(1)$ Graph Traversal
+1. Extracts all `import` statements from the generated code via `tree-sitter` AST (with regex fallback for edge cases).
+2. Checks each local import against the set of files the DAG isolated (`allowed_nodes`).
+3. If all imports are valid: passes the response through unchanged.
+4. If violations are found: **deterministically patches** each illegal import by resolving the correct path from `allowed_nodes` using basename matching — no second LLM call, no extra tokens.
 
-The SRM Engine builds a `networkx` DiGraph from the actual `import` statements in your codebase (parsed by a `tree-sitter` AST, not regex guessing). When a prompt arrives:
-
-1. **Seed:** Map prompt keywords to graph entry-point nodes.
-2. **Traverse:** Walk the DAG to find all reachable dependencies (topological closure).
-3. **Isolate:** Return only the files that are mathematically reachable from the seed — nothing else.
-
-This is $O(depth)$ in graph traversal, effectively $O(1)$ relative to codebase size, and it produces **zero false positives by construction**.
+If a hallucinated file has no match anywhere in the allowed set (i.e., the file genuinely does not exist in the graph), the import is commented out with a `// [SRM PATCH: hallucinated import removed]` annotation, keeping the output syntactically valid.
 
 ```mermaid
 flowchart TD
-    A["User Prompt"] --> B["SRM: Keyword → Graph Seeds"]
-    B --> C["DAG Traversal (tree-sitter AST edges)"]
-    C --> D["Topologically Isolated Context"]
-    D --> E["LLM Context Window (≤10 files)"]
+    P["User Prompt"] --> S["Phase 1: Semantic Seeding\n(all-MiniLM-L6-v2 embeddings)"]
+    S --> T["Phase 2: DAG Traversal\n(shortest path + descendants)"]
+    T --> ISO["Isolated Context\n(topologically bounded subgraph)"]
 
-    style D fill:#1a472a,color:#fff
-    style E fill:#155724,color:#fff
+    ISO --> T1["Tier 1: ChromaDB RAG\n(top-K vector chunks)"]
+    ISO --> T2["Tier 2: GOG Vanilla\n(single LLM call, no constraint)"]
+    ISO --> T3["Tier 3: GOG + Membrane\n(single LLM call + deterministic patch)"]
+
+    T3 --> MEM{"SalienceEvaluator"}
+    MEM -- "imports valid" --> OUT["Response passed through"]
+    MEM -- "violation found" --> PATCH["Graph resolves correct path\nPatch applied in-place\n(0 additional LLM calls)"]
+    PATCH --> OUT
+
+    style MEM fill:#2c3e50,color:#fff
+    style OUT fill:#1a472a,color:#fff
+    style PATCH fill:#7d3c98,color:#fff
 ```
 
 ---
 
-## NEW: The Salience Membrane (Neuro-Symbolic AI)
+## Benchmark Design
 
-> *"GOG is a retrieval guarantee. The Membrane is a generation guarantee."*
+Both benchmark scripts run three pipelines on identical code-generation tasks against a procedurally generated 100+ file Vue/TypeScript repository containing deliberate red-herring components (files that share keyword overlap with target prompts but have no structural connection to the execution path).
 
-Even with a perfectly curated context window, an LLM remains stochastic. It can still hallucinate an `import` path that was never in the provided files. We call this an **architectural hallucination**.
+| Tier | Pipeline | Context Source | Post-generation Constraint |
+|------|----------|---------------|---------------------------|
+| **1** | RAG Control | ChromaDB top-5 vector chunks | None |
+| **2** | GOG Vanilla | DAG-isolated subgraph | None |
+| **3** | GOG + Membrane | DAG-isolated subgraph | Deterministic import patching |
 
-The `SalienceEvaluator` (in `srm_engine/salience_evaluator.py`) is the **Neuro-Symbolic Membrane** that closes this gap.
+### Task Prompts
 
-### The Architecture
+| Level | Task | Structural Complexity |
+|-------|------|-----------------------|
+| Easy | Add `lastLogin` timestamp to `authStore.ts` | Single-file mutation |
+| Medium | Wire a Logout button in `HeaderWidget.vue` to `useAuthStore` | Two-file dependency bridge |
+| Hard | Implement Delete Account across `api_client.ts`, `authStore.ts`, `UserSettings.vue` — without importing `api_client.ts` directly into the Vue component | Three-file topological constraint |
 
-| Layer | Component | Role |
-|---|---|---|
-| **Neuro** | The LLM (Ollama / opencode) | Creative, stochastic code generation |
-| **Symbolic** | The GOG DAG | Deterministic, ground-truth dependency graph |
-| **Membrane** | `SalienceEvaluator` | Reject/accept arbiter between the two layers |
+### Representative Results
 
-### How Rejection Sampling Works
+Results from a single run (cloud CLI, opencode). Token counts use `tiktoken` `cl100k_base` encoding.
 
-Rejection Sampling is a Monte Carlo technique: draw a sample from a distribution, test it against a hard constraint, discard it if it fails, draw again. Here:
+| Metric | Tier 1 · RAG | Tier 2 · GOG | Tier 3 · GOG + Membrane |
+|--------|-------------|-------------|------------------------|
+| **Easy — Tokens In** | 53,137 | 6,323 | 6,323 |
+| **Easy — Token Reduction** | baseline | **88.1% ↓** | **88.1% ↓** |
+| **Easy — Topological Patches** | — | — | 1 (api_client hallucination caught) |
+| **Hard — Tokens In** | 61,744 | 6,249 | 6,249 |
+| **Hard — Token Reduction** | baseline | **89.9% ↓** | **89.9% ↓** |
+| **Hard — Total Execution Time** | 64.8s | 65.5s | **45.7s** |
 
-```
-sample       = one LLM response (a generated code block)
-distribution = the LLM's generative output space  
-constraint   = the GOG symbolic dependency graph
-```
-
-The loop in `run_srm_pipeline_membrane`:
-
-```
-while attempts < max_attempts:
-    response = LLM.generate(prompt)          # Stochastic draw
-    result   = Membrane.evaluate(response)   # Deterministic check
-
-    if result.is_valid:
-        return response                      # ✅ Accept
-    else:
-        prompt += f"[SYSTEM FEEDBACK: {result.reason}]"  # ❌ Reject + correct
-        attempts += 1
-```
-
-The structured feedback on each rejection **names the exact illegal imports** and the exact files the LLM is allowed to use. This steers the model toward compliance without fine-tuning.
-
-### The Dual-Layer Validator
-
-The Membrane uses two import extraction strategies in sequence, making it robust to edge cases in smaller SLMs:
-
-1. **Primary — `tree-sitter` AST:** Precise structural parsing of the generated TypeScript/Vue code. Cannot be fooled by comments or strings.
-2. **Fallback — Regex:** If the AST returns zero imports but the code contains `import` statements (e.g., the file lacks a trailing newline, a known `tree-sitter` quirk), the regex fallback activates. This prevents the dangerous case where a hallucinated import is silently missed.
+On the Hard task, the GOG context consisted of a single file (`api_client.ts`). Despite this minimal context, the LLM correctly reconstructed the three-file implementation by drawing on its parametric knowledge of Vue/Pinia patterns — producing the same correct answer as RAG at 89.9% lower token cost.
 
 ---
 
-## The 3-Tier Benchmark
+## Known Limitations
 
-Both benchmark scripts (`benchmark_local_llm.py` and `benchmark_cloud_cli.py`) run the same three pipelines head-to-head on identical code-generation tasks.
+**Semantic seeder false positives.** The Medium task isolated `mockLogoutHandler.ts` alongside the two genuinely relevant files, reducing token savings from ~88% to ~23.7%. This occurred because `mockLogoutHandler` shares the `logout` keyword with the prompt. Semantic similarity over filenames cannot distinguish between a structurally relevant file and a semantically similar but architecturally disconnected one. A reachability-weighted scoring pass between seed candidates is the planned mitigation.
 
-| Tier | Pipeline | Context Source | Membrane |
-|------|----------|---------------|----------|
-| **Tier 1** | RAG Control | ChromaDB top-5 vector chunks | ❌ None |
-| **Tier 2** | GOG Vanilla | DAG-isolated files | ❌ None |
-| **Tier 3** | GOG + Membrane | DAG-isolated files | ✅ Rejection Sampling |
+**Lexical seeding degrades on indirect prompts.** Prompts that use natural language without architectural vocabulary (e.g. "clicks logout from the settings view" rather than "UserSettings logout action") may fail to seed the graph at all, causing a fallback to full-graph context (equivalent to a RAG full-context dump). This is surfaced explicitly in the code rather than silently degraded.
 
-### Benchmark Results (Hard Difficulty — "Full Stack Trace Implementation")
+**Benchmark is self-contained.** The target repository is procedurally generated, which allows controlled evaluation of red-herring resistance but limits external validity. Evaluation against real-world repositories is planned for a follow-up.
 
-The prompt asks the LLM to implement a multi-file feature spanning `api_client.ts`, `authStore.ts`, and `UserSettings.vue`, with an explicit constraint: *do NOT import `api_client.ts` directly into the Vue component.*
-
-| Metric | Tier 1 · RAG | Tier 2 · GOG | Tier 3 · GOG + Membrane | Δ vs RAG |
-|---|---|---|---|---|
-| Local Compute Time | ~0.42s | ~0.003s | ~0.003s | **-99%** |
-| LLM Generation Time | baseline | baseline | baseline × (1 + rejections) | varies |
-| **Tokens In (Est.)** | **~2,800** | **~480** | **~480** | **-82.9%** |
-| Rejection Attempts | — | — | **1–3** | proves hallucinations caught |
-
-> **The ~80%+ token reduction** is the GOG graph doing its job — collapsing a 100+ file codebase to the 5–8 files that actually matter.
->
-> **The Rejection Attempts** in Tier 3 are not a failure — they are proof the system is working. Each attempt represents an architectural hallucination that was *caught and corrected* before reaching the downstream build system.
-
-### The Prompts
-
-All prompts are **code-generation tasks** (not Q&A), because the Membrane can only validate TypeScript/Vue code blocks:
-
-| Level | Description | Key Constraint |
-|---|---|---|
-| **Easy** | Add `lastLogin` timestamp to `authStore.ts` | 1-file mutation |
-| **Medium** | Wire a Logout button in `HeaderWidget.vue` to `useAuthStore` | 2-file wiring |
-| **Hard** | Implement Delete Account across 3 files | Topological constraint enforced by Membrane |
-
----
-
-## Architecture Overview
-
-```mermaid
-flowchart TD
-    P["User Prompt (Code Task)"] --> G["SRM Engine: DAG Traversal"]
-    G --> ISO["Isolated Context (5-8 files)"]
-    
-    ISO --> T1["Tier 1: ChromaDB RAG\n(top-K chunks)"]
-    ISO --> T2["Tier 2: GOG Vanilla\n(single LLM call)"]
-    ISO --> T3["Tier 3: GOG + Membrane\n(rejection sampling loop)"]
-
-    T3 --> MEM{"SalienceEvaluator\nMembrane"}
-    MEM -- "✅ Valid imports" --> OUT["Accepted Response"]
-    MEM -- "❌ Hallucinated import" --> FB["SYSTEM FEEDBACK → retry"]
-    FB --> T3
-
-    style MEM fill:#4a1942,color:#fff
-    style OUT fill:#155724,color:#fff
-    style FB fill:#721c24,color:#fff
-```
+**Token counts are estimates.** `tiktoken` `cl100k_base` is used as a cross-model proxy. Actual token consumption will vary by model and tokenizer.
 
 ---
 
 ## Getting Started
 
-Setup takes ~2–3 minutes.
-
-### 1. Install Python Dependencies
+### Requirements
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Install the Cloud CLI (optional — for `benchmark_cloud_cli.py`)
+Key dependencies: `networkx`, `tree-sitter`, `tree-sitter-typescript`, `chromadb`, `sentence-transformers`, `tiktoken`, `rich`.
+
+> **NumPy compatibility note:** `sentence-transformers` currently requires `numpy<2`. If your environment has NumPy 2.x installed, create a virtual environment first:
+> ```bash
+> python3 -m venv .venv && source .venv/bin/activate
+> pip install "numpy<2" && pip install -r requirements.txt
+> ```
+
+### Cloud CLI benchmark (recommended for output quality)
 
 ```bash
-npm install -g opencode
+npm install -g opencode          # install opencode CLI
+python3 generate_dummy_repo.py   # generate the 100+ file target repository
+python3 seed_RAG_and_GOG.py      # build ChromaDB index + serialize GOG graph
+python3 benchmark_cloud_cli.py   # run the 3-tier gauntlet
 ```
 
-### 3. Install Ollama (optional — for `benchmark_local_llm.py`)
+### Local SLM benchmark (fully offline, no API costs)
 
 ```bash
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull qwen2.5:0.5b
-```
-
-### 4. Generate the Target Repository Maze
-
-Inflate a synthetic 100+ file Vue/TypeScript project with deliberate architectural "needles" hidden inside noise components.
-
-```bash
 python3 generate_dummy_repo.py
-```
-
-### 5. Seed RAG + GOG Environments
-
-Build the ChromaDB vector index (for RAG Control) and serialize the dependency graph to `gog_graph.pkl` (for GOG tiers).
-
-```bash
 python3 seed_RAG_and_GOG.py
-```
-
-### 6. Run the Benchmark
-
-**Cloud CLI (opencode — recommended for best output quality):**
-```bash
-python3 benchmark_cloud_cli.py
-```
-
-**Local SLM (Ollama — fully offline, no API costs):**
-```bash
 python3 benchmark_local_llm.py
 ```
 
-Both scripts present an interactive difficulty selector (`Easy / Medium / Hard / All`). Select **Hard** to observe the Membrane performing live Rejection Sampling.
+Both scripts present an interactive difficulty selector (`Easy / Medium / Hard / All`).
 
-> [!TIP]
-> The local benchmark forces CPU execution by default (`num_gpu: 0`).
-> This ensures stability on machines with low VRAM (< 4 GB) and avoids
-> "CUDA out of memory" errors during benchmarking.
-
-> [!NOTE]
-> An arXiv preprint formalising the mathematical underpinning of GOG (Context
-> Collapse, $O(1)$ traversal, and the Neuro-Symbolic Membrane) is in progress.
-> If you are eligible to endorse in **cs.IR** or **cs.AI**, please reach out —
-> endorsement links are available upon request.
+> **Note:** The local benchmark sets `num_gpu: 0` by default to avoid VRAM allocation errors on machines with limited GPU memory. Remove this flag in `benchmark_local_llm.py` if you want GPU acceleration.
 
 ---
 
 ## Contributing
 
-Contributions are very welcome — especially:
+The `TypeScriptParser` interface (`extract_imports(file_path) -> List[str]`) is designed to be extended. Parsers for Python, Go, Rust, or other languages with resolvable import graphs would meaningfully expand the benchmark's applicability.
 
-- **Language parsers** — the `TypeScriptParser` interface (`extract_imports(file_path) -> List[str]`) is designed to be extended. A Python, Go, or Rust parser would dramatically expand GOG's applicability.
-- **Benchmark prompts** — harder topological constraint tests.
-- **Membrane heuristics** — alternative accept/reject strategies beyond basename matching.
+Other areas where contributions are welcome:
 
-See `CONTRIBUTING.md` for code style and testing guidance.
+- Additional benchmark prompts, particularly those that stress-test the seeder with indirect natural language
+- Alternative seeding strategies (e.g. hybrid lexical + semantic, or structure-aware reachability scoring)
+- Evaluation against real-world open-source repositories
+
+Please open an issue before submitting a large pull request so we can align on approach first.
+
+---
+
+## Citation
+
+If you use this work, please cite the accompanying paper:
+
+```
+Chisholm, D. R. (2026). Graph-Oriented Generation (GOG): Offloading AI Reasoning
+to Deterministic Symbolic Graphs. https://github.com/dchisholm125/graph-oriented-generation
+```

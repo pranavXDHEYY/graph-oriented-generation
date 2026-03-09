@@ -8,6 +8,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from srm_engine import ast_parser, graph_search
 from srm_engine.opencode_client import OpenCodeClient
 from srm_engine.salience_evaluator import SalienceEvaluator
+from srm_engine.token_utils import count_tokens_in_files as get_token_count
 
 console = Console()
 client = OpenCodeClient()
@@ -34,16 +35,6 @@ MUZZLE = (
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def get_token_count(files):
-    """Estimate tokens based on word count of files."""
-    count = 0
-    for f in files:
-        if os.path.exists(f):
-            with open(f, "r", encoding="utf8") as content:
-                count += len(content.read().split())
-    return count
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Tier 1 — Control: Vector RAG
 # ─────────────────────────────────────────────────────────────────────────────
@@ -56,7 +47,7 @@ def run_control_pipeline(prompt, repo_path):
     if not os.path.exists(db_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: ChromaDB not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import chromadb
     client_db = chromadb.PersistentClient(path=db_path)
@@ -87,7 +78,7 @@ def run_control_pipeline(prompt, repo_path):
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": 0}
+            "patches_applied": 0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -106,7 +97,7 @@ def run_srm_pipeline_vanilla(prompt, repo_path):
     if not os.path.exists(graph_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: Graph not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import pickle
     with open(graph_path, "rb") as f:
@@ -129,7 +120,7 @@ def run_srm_pipeline_vanilla(prompt, repo_path):
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": 0}
+            "patches_applied": 0}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,7 +176,7 @@ def run_srm_pipeline_membrane(prompt, repo_path):
     if not os.path.exists(graph_path):
         return {"time": 0, "local_time": 0, "api_time": 0, "tokens_in": 0,
                 "tokens_out": 0, "response": "Error: Graph not found. Run seed_RAG_and_GOG.py first.",
-                "rejection_attempts": 0}
+                "patches_applied": 0}
 
     import pickle
     with open(graph_path, "rb") as f:
@@ -196,55 +187,50 @@ def run_srm_pipeline_membrane(prompt, repo_path):
     local_time = time.time() - start_time
 
     api_start = time.time()
-    rejection_attempts = 0
+    patches_applied = 0
 
     if not client.is_present:
         time.sleep(0.5)
         response = "Mocked GOG+Membrane result (opencode CLI not found)"
     else:
         evaluator = SalienceEvaluator(allowed_nodes=isolated_files)
-        max_attempts = 3
-        # Seed the first call with the muzzled prompt.
-        # Subsequent retries prepend the SYSTEM FEEDBACK block, which already
-        # contains the muzzle implicitly via the rejection reason text.
-        current_prompt = prompt + MUZZLE
-        raw_response = ""
 
-        while rejection_attempts < max_attempts:
-            raw_response = client.complete(current_prompt, context_files=isolated_files)
+        # ── Single LLM call — the graph corrects, not the LLM ─────────────
+        # The LLM generates freely (creativity). The SRM Membrane then
+        # deterministically patches any topological violations using the
+        # ground-truth dependency graph. No retries. No extra token cost.
+        raw_response = client.complete(prompt + MUZZLE, context_files=isolated_files)
+        result = evaluator.evaluate(raw_response)
 
-            # ── The Membrane Test ──────────────────────────────────────────
-            result = evaluator.evaluate(raw_response)
-
-            if result.is_valid:
-                response = raw_response
-                break
-            else:
-                # Rejection Sampling: structured feedback so the Cloud agent can self-correct
+        if result.is_valid:
+            # Display the full raw response — extracted_code strips fence markers
+            # and partial Vue blocks. The raw response is always the correct display value.
+            response = raw_response
+        else:
+            patches_applied = len(result.violations)
+            if patches_applied > 0:
                 console.print(
-                    f"[bold yellow][SalienceEvaluator] Cloud Attempt "
-                    f"{rejection_attempts + 1}/{max_attempts} rejected:[/bold yellow] "
-                    f"{result.reason}"
+                    f"[bold cyan][SRM Membrane] Patching {patches_applied} "
+                    f"topological violation(s) deterministically (no retry):[/bold cyan] "
+                    + ", ".join(f"'{v}'" for v in result.violations)
                 )
-                current_prompt = (
-                    f"{prompt}\n\n"
-                    f"[SYSTEM FEEDBACK: Your previous attempt failed validation: "
-                    f"{result.reason}. Please rewrite the code to comply with "
-                    f"these topological boundaries.]"
-                )
-                rejection_attempts += 1
-
-        if rejection_attempts == max_attempts:
-            response = (
-                f"[SRM Rejection] The Cloud LLM failed to generate topologically valid "
-                f"code after {max_attempts} attempts.\n\nLast output:\n{raw_response}"
-            )
+            patched_code = evaluator.patch(result)
+            # Re-wrap patched code in a fence for display.
+            # Fall back to raw_response if patch() yields nothing extractable.
+            if patched_code and patched_code.strip():
+                # Detect original fence language (vue vs ts) to preserve it
+                import re as _re
+                lang_match = _re.search(r"```(typescript|ts|vue)", raw_response, _re.IGNORECASE)
+                fence_lang = lang_match.group(1).lower() if lang_match else "ts"
+                response = f"```{fence_lang}\n{patched_code}\n```"
+            else:
+                response = raw_response
 
     api_time = time.time() - api_start
     execution_time = local_time + api_time
     return {"time": execution_time, "local_time": local_time, "api_time": api_time,
             "tokens_in": tokens_in, "tokens_out": 150, "response": response,
-            "rejection_attempts": rejection_attempts}
+            "patches_applied": patches_applied}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -314,10 +300,10 @@ def print_results(rag_m, vanilla_m, membrane_m, prompt_text):
 
     # ── Membrane rejection attempts ─────────────────────────────────────────
     table.add_row(
-        "Rejection Attempts (Membrane)",
+        "Topological Patches (Membrane)",
         "—",
         "—",
-        str(membrane_m["rejection_attempts"]),
+        str(membrane_m["patches_applied"]),
     )
 
     console.print(table)
@@ -363,8 +349,8 @@ def print_results(rag_m, vanilla_m, membrane_m, prompt_text):
         verdict = (
             f"[bold green]WINNER: GOG + Membrane (Tier 3)[/bold green]\n"
             f"Reduced context load by {token_pct_mem:.1f}% vs RAG.\n"
-            f"Membrane triggered [bold]{membrane_m['rejection_attempts']}[/bold] "
-            f"correction(s) to enforce topological safety."
+            f"Membrane triggered [bold]{membrane_m['patches_applied']}[/bold] "
+            f"topological violation(s) patched deterministically (0 extra LLM calls).."
         )
         console.print(Panel(verdict, title="Verdict", border_style="green"))
     elif token_pct_van > 50:

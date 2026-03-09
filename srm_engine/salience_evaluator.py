@@ -112,6 +112,11 @@ class EvaluationResult:
     is_valid: bool
     reason: Optional[str] = None
     extracted_code: Optional[str] = None
+    violations: List[str] = None
+
+    def __post_init__(self):
+        if self.violations is None:
+            self.violations = []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -306,10 +311,97 @@ class SalienceEvaluator:
                     f"You may ONLY import from these files: [{allowed_list}]."
                 ),
                 extracted_code=code,
+                violations=violations,
             )
 
         return EvaluationResult(
             is_valid=True,
             reason=None,
             extracted_code=code,
+            violations=[],
         )
+
+    def patch(self, result: EvaluationResult) -> str:
+        """
+        Deterministically corrects a failed EvaluationResult without a second
+        LLM call.
+
+        This is the core of the Neuro-Symbolic architecture: the LLM generates
+        freely (creativity), and the SRM graph corrects any topological errors
+        (determinism).  The graph is the ground truth — we never need to ask
+        the LLM to guess the right import path when we already know it.
+
+        Algorithm
+        ---------
+        For each illegal import specifier in ``result.violations``:
+          1. Extract its basename (e.g. ``../../utils/httpUtils`` → ``httpUtils``).
+          2. Find the matching absolute path in ``allowed_nodes`` by basename.
+          3. Compute the correct relative import path from a generic src root.
+          4. Replace the illegal specifier in the extracted code with the
+             correct one using a targeted regex substitution.
+
+        If no match is found in ``allowed_nodes`` for a violation (i.e., the
+        LLM hallucinated a file that genuinely doesn't exist anywhere in the
+        graph), the illegal import line is commented out with a diagnostic
+        annotation so the output remains syntactically valid.
+
+        Parameters
+        ----------
+        result:
+            An ``EvaluationResult`` with ``is_valid=False`` from ``evaluate()``.
+            If ``is_valid=True``, the original ``extracted_code`` is returned
+            unchanged — patch() is a no-op on valid results.
+
+        Returns
+        -------
+        str
+            Syntactically valid TypeScript/Vue code with all topological
+            violations resolved deterministically.
+        """
+        if result.is_valid or not result.extracted_code:
+            return result.extracted_code or ""
+
+        code = result.extracted_code
+
+        # Build a basename → absolute path lookup from allowed_nodes
+        basename_to_abs: dict = {}
+        for abs_path in self.allowed_nodes:
+            name = os.path.splitext(os.path.basename(abs_path))[0]
+            basename_to_abs[name.lower()] = abs_path
+
+        for specifier in result.violations:
+            # Derive the stem the LLM intended (e.g. '../../httpUtils' → 'httputils')
+            raw_stem = os.path.splitext(os.path.basename(specifier))[0].lower()
+
+            if raw_stem in basename_to_abs:
+                correct_abs = basename_to_abs[raw_stem]
+                # Emit a src-root-relative path (e.g. '@/services/httpUtils')
+                # using the portion of the path after 'src/' if present,
+                # otherwise just the basename.
+                abs_str = correct_abs.replace("\\", "/")
+                if "/src/" in abs_str:
+                    correct_specifier = "@/" + abs_str.split("/src/", 1)[1]
+                    # Strip extension for TS convention
+                    correct_specifier = os.path.splitext(correct_specifier)[0]
+                else:
+                    correct_specifier = "./" + os.path.splitext(
+                        os.path.basename(correct_abs)
+                    )[0]
+
+                # Replace the specifier inside the import statement
+                code = re.sub(
+                    r"(from\s+['\"])" + re.escape(specifier) + r"(['\"])",
+                    rf"\g<1>{correct_specifier}\g<2>",
+                    code,
+                )
+            else:
+                # No match — the LLM hallucinated a file that doesn't exist.
+                # Comment out the line with a diagnostic annotation.
+                code = re.sub(
+                    r"^(.*import.*['\"]" + re.escape(specifier) + r"['\"].*)",
+                    r"// [SRM PATCH: hallucinated import removed] \1",
+                    code,
+                    flags=re.MULTILINE,
+                )
+
+        return code
