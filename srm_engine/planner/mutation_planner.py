@@ -10,10 +10,10 @@ All operations are deterministic graph lookups — no LLM calls.
 
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Dict
 import networkx as nx
 
-from .intent_parser import OperationSpec, AddFieldOperation, MutateActionOperation
+from .intent_parser import OperationSpec, ForbiddenImportConstraint
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -23,15 +23,19 @@ from .intent_parser import OperationSpec, AddFieldOperation, MutateActionOperati
 @dataclass
 class MutationPlan:
     """
-    Complete specification of mutations to apply to a target file.
+    Complete specification of mutations to apply across one or more files.
 
     All path resolution and validation happens at plan-time (here),
     not at render-time. The plan is immutable once created.
+
+    For single-file tasks (Easy): operations_by_file has one key.
+    For multi-file tasks (Medium, Hard): operations_by_file has multiple keys.
+    Constraints are violations that must be enforced (e.g., FORBIDDEN_IMPORT).
     """
-    target_file_rel: str           # Relative path as parsed ("src/stores/authStore.ts")
-    target_file_abs: str           # Absolute path resolved via graph
-    operations: List[OperationSpec] # Ordered list of operations to apply
-    file_content: str              # Raw file content read at plan time
+    operations_by_file: Dict[str, List[OperationSpec]]  # keyed by relative path
+    constraints: List[ForbiddenImportConstraint]        # must-not rules
+    file_contents: Dict[str, str]                       # stripped content per file
+    file_paths_abs: Dict[str, str]                      # mapping: rel → abs path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -53,7 +57,9 @@ def plan_mutations(
     repo_root: str,
 ) -> MutationPlan:
     """
-    Resolves target file in graph, reads content, returns validated MutationPlan.
+    Resolves target files in graph, reads content, returns validated multi-file MutationPlan.
+
+    Supports both single-file (Easy) and multi-file (Medium, Hard) operations.
 
     Args:
         ops: List of OperationSpec from intent_parser.parse_intent().
@@ -61,62 +67,66 @@ def plan_mutations(
         repo_root: Absolute path to repository root.
 
     Returns:
-        MutationPlan with target_file_abs resolved and file_content loaded.
+        MutationPlan with all target_file paths resolved and content loaded.
 
     Raises:
-        PlannerError: If target file not found in graph or I/O fails.
+        PlannerError: If any target file not found in graph or I/O fails.
     """
     if not ops:
         raise PlannerError("No operations provided.")
 
-    # All operations must reference the same target file
-    target_file_rel = ops[0].target_file
-    for op in ops[1:]:
-        if op.target_file != target_file_rel:
-            raise PlannerError(
-                f"All operations must reference the same file. "
-                f"Found '{op.target_file}' but expected '{target_file_rel}'."
-            )
+    # ── Separate constraints from operations ─────────────────────────────────
+    constraints = [op for op in ops if isinstance(op, ForbiddenImportConstraint)]
+    mutations = [op for op in ops if not isinstance(op, ForbiddenImportConstraint)]
 
-    # ── Resolve relative path to absolute ────────────────────────────────────
-    target_file_abs = os.path.abspath(os.path.join(repo_root, target_file_rel))
+    # ── Group operations by target file ──────────────────────────────────────
+    operations_by_file: Dict[str, List[OperationSpec]] = {}
+    for op in mutations:
+        target_file_rel = op.target_file
+        if target_file_rel not in operations_by_file:
+            operations_by_file[target_file_rel] = []
+        operations_by_file[target_file_rel].append(op)
 
-    # ── Verify file exists in graph ──────────────────────────────────────────
-    # Graph nodes are absolute paths. We've computed target_file_abs,
-    # so it should match a node exactly.
-    if target_file_abs not in graph.nodes():
-        # Try to find a close match (in case of path normalization issues)
-        matching_nodes = [
-            n for n in graph.nodes()
-            if os.path.normpath(n) == os.path.normpath(target_file_abs)
-        ]
-        if not matching_nodes:
-            raise PlannerError(
-                f"Target file not found in graph: {target_file_abs}\n"
-                f"Available nodes: {list(graph.nodes())[:3]}... "
-                f"(showing first 3 of {graph.number_of_nodes()} total)"
-            )
-        target_file_abs = matching_nodes[0]
+    # ── Resolve and read all target files ────────────────────────────────────
+    file_contents: Dict[str, str] = {}
+    file_paths_abs: Dict[str, str] = {}
 
-    # ── Read file content ────────────────────────────────────────────────────
-    try:
-        with open(target_file_abs, "r", encoding="utf-8") as f:
-            file_content = f.read()
-    except IOError as e:
-        raise PlannerError(f"Failed to read file {target_file_abs}: {e}")
+    for target_file_rel in operations_by_file.keys():
+        # Resolve relative path to absolute
+        target_file_abs = os.path.abspath(os.path.join(repo_root, target_file_rel))
+
+        # Verify file exists in graph
+        if target_file_abs not in graph.nodes():
+            matching_nodes = [
+                n for n in graph.nodes()
+                if os.path.normpath(n) == os.path.normpath(target_file_abs)
+            ]
+            if not matching_nodes:
+                raise PlannerError(
+                    f"Target file not found in graph: {target_file_abs}"
+                )
+            target_file_abs = matching_nodes[0]
+
+        # Read file content
+        try:
+            with open(target_file_abs, "r", encoding="utf-8") as f:
+                file_contents[target_file_rel] = f.read()
+        except IOError as e:
+            raise PlannerError(f"Failed to read file {target_file_abs}: {e}")
+
+        file_paths_abs[target_file_rel] = target_file_abs
 
     return MutationPlan(
-        target_file_rel=target_file_rel,
-        target_file_abs=target_file_abs,
-        operations=ops,
-        file_content=file_content,
+        operations_by_file=operations_by_file,
+        constraints=constraints,
+        file_contents=file_contents,
+        file_paths_abs=file_paths_abs,
     )
 
 
 if __name__ == "__main__":
     # Test the planner (requires graph.pkl and target_repo)
     import pickle
-    from srm_engine import ast_parser
 
     graph_path = os.path.join(os.path.dirname(__file__), "../../gog_graph.pkl")
     target_repo = os.path.join(os.path.dirname(__file__), "../../target_repo")
@@ -141,8 +151,10 @@ if __name__ == "__main__":
 
             plan = plan_mutations(ops, G, target_repo)
             print(f"✓ Mutation plan created:")
-            print(f"  Target: {plan.target_file_rel} (abs: {plan.target_file_abs})")
-            print(f"  Operations: {len(plan.operations)}")
-            print(f"  File content length: {len(plan.file_content)} chars")
+            print(f"  Files: {list(plan.operations_by_file.keys())}")
+            print(f"  Total operations: {sum(len(v) for v in plan.operations_by_file.values())}")
+            print(f"  Constraints: {len(plan.constraints)}")
+            for file, content in plan.file_contents.items():
+                print(f"  {file}: {len(content)} chars")
         except Exception as e:
             print(f"✗ Error: {e}")

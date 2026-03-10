@@ -250,7 +250,7 @@ def print_srm_benchmark_results(rag_m, vanilla_m, srm_m, prompt_text, level=None
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    """Run the SRM benchmark on the Easy task."""
+    """Run the SRM benchmark on selected tasks (Easy, Medium, Hard, or All)."""
     console.print(Panel(
         "[bold]SRM Pipeline Benchmark (Phase 2)[/bold]\n\n"
         "[dim]Hypothesis: Symbolic reasoning offloaded to deterministic planner "
@@ -280,10 +280,39 @@ def main():
     with open(graph_path, "rb") as f:
         G = pickle.load(f)
 
-    # Run Easy task
-    prompt_dict = PROMPTS["Easy"]
+    # Task selection
+    console.print("\n[bold]Available tasks:[/bold]")
+    console.print("  1. Easy — Single-file state mutation (ADD_FIELD + MUTATE_ACTION)")
+    console.print("  2. Medium — Vue component wiring (imports + bindings + template)")
+    console.print("  3. Hard — Multi-file feature with forbidden import constraint")
+    console.print("  4. All — Run all three tiers on all difficulties")
+
+    try:
+        choice = input("\nSelect task (1-4): ").strip()
+    except (KeyboardInterrupt, EOFError):
+        choice = "1"  # Default to Easy
+
+    if choice == "1":
+        tasks = ["Easy"]
+    elif choice == "2":
+        tasks = ["Medium"]
+    elif choice == "3":
+        tasks = ["Hard"]
+    elif choice == "4":
+        tasks = ["Easy", "Medium", "Hard"]
+    else:
+        console.print("[red]Invalid choice. Defaulting to Easy.[/red]")
+        tasks = ["Easy"]
+
+    # Run selected tasks
+    for task_level in tasks:
+        _run_single_task(task_level, target_repo, G)
+
+
+def _run_single_task(level: str, target_repo: str, G):
+    """Run a single task through all 3 tiers."""
+    prompt_dict = PROMPTS[level]
     prompt_text = prompt_dict["text"]
-    level = "Easy"
 
     console.print(Panel(
         f"[bold]Task:[/bold] {level}\n"
@@ -319,6 +348,7 @@ def main():
 
     # Print results
     print_srm_benchmark_results(rag, vanilla, srm, prompt_text, level=level)
+    console.print("\n" + "="*80 + "\n")
 
     # ── Final Verdict ───────────────────────────────────────────────────────
     srm_tokens = srm.get("tokens_in", 0)

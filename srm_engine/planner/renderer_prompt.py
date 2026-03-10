@@ -107,16 +107,16 @@ def _extract_store_skeleton(content: str) -> str:
 
 def build_renderer_prompt(plan: MutationPlan) -> str:
     """
-    Assembles symbolic spec from MutationPlan, stripping noise.
+    Assembles symbolic spec from multi-file MutationPlan, stripping noise.
 
     The output is a strict specification — not a creative prompt.
     The LLM is being asked to apply a diff, not to think about architecture.
 
+    For single-file plans: produces a single-file spec.
+    For multi-file plans: produces a section per file with operations and content.
+
     Content is sanitized before presentation: DUMMY_ASSETS blocks, random
-    boilerplate comments, and other structural noise are removed. The LLM
-    receives only imports + defineStore definition (~15 lines), not 200+ lines
-    of noise. This prevents content poisoning where the LLM gets lost in
-    deliberately injected red herrings (from generate_dummy_repo.py).
+    boilerplate comments, and other structural noise are removed.
 
     Args:
         plan: MutationPlan from mutation_planner.plan_mutations().
@@ -124,9 +124,29 @@ def build_renderer_prompt(plan: MutationPlan) -> str:
     Returns:
         String ready to be appended with MUZZLE and sent to LLM.
     """
-    operations_text = ""
+    # Check if this is a single-file or multi-file plan
+    is_multi_file = len(plan.operations_by_file) > 1
 
-    for i, op in enumerate(plan.operations, 1):
+    if is_multi_file:
+        return _build_multifile_spec(plan)
+    else:
+        return _build_singlefile_spec(plan)
+
+
+def _build_singlefile_spec(plan: MutationPlan) -> str:
+    """Build symbolic spec for single-file tasks (Easy, Medium)."""
+    from .intent_parser import (
+        AddFieldOperation, MutateActionOperation, AddImportOperation,
+        AddTemplateElementOperation, AddSetupBindingOperation,
+        AddMethodOperation, AddActionOperation
+    )
+
+    # Get the single file
+    target_file_rel = list(plan.operations_by_file.keys())[0]
+    operations = plan.operations_by_file[target_file_rel]
+
+    operations_text = ""
+    for i, op in enumerate(operations, 1):
         if isinstance(op, AddFieldOperation):
             operations_text += (
                 f"{i}. ADD_FIELD to state object:\n"
@@ -139,26 +159,202 @@ def build_renderer_prompt(plan: MutationPlan) -> str:
                 f"{i}. MUTATE_ACTION '{op.target_action}':\n"
                 f"   - add statement: {op.add_statement}\n"
             )
+        elif isinstance(op, AddImportOperation):
+            operations_text += f"{i}. ADD_IMPORT:\n   {op.import_statement}\n"
+        elif isinstance(op, AddTemplateElementOperation):
+            operations_text += (
+                f"{i}. ADD_TEMPLATE_ELEMENT (next to '{op.insert_adjacent_to}'):\n"
+                f"   {op.element_html}\n"
+            )
+        elif isinstance(op, AddSetupBindingOperation):
+            operations_text += f"{i}. ADD_SETUP_BINDING:\n   {op.binding_statement}\n"
+        elif isinstance(op, AddMethodOperation):
+            operations_text += (
+                f"{i}. ADD_METHOD '{op.method_name}':\n"
+                f"   {op.method_body}\n"
+            )
+        elif isinstance(op, AddActionOperation):
+            operations_text += (
+                f"{i}. ADD_ACTION '{op.action_name}':\n"
+                f"   {op.action_body}\n"
+            )
 
-    # Strip noise from file content before passing to LLM
-    clean_content = _extract_store_skeleton(plan.file_content)
+    # Strip noise from file content (use Vue stripper for .vue files)
+    is_vue = target_file_rel.endswith('.vue')
+    content = plan.file_contents[target_file_rel]
+    clean_content = _extract_vue_skeleton(content) if is_vue else _extract_store_skeleton(content)
+
+    # Use appropriate instructions based on file type
+    file_type = "Vue component" if is_vue else "TypeScript/Pinia store"
+    instructions = (
+        f"Render the complete updated {file_type}.\n"
+        f"Do not add imports that are not already present (except ADD_IMPORT operations).\n"
+        f"Do not add fields or actions beyond those specified above."
+        if not is_vue
+        else f"Render the complete updated {file_type}.\n"
+             f"Preserve all existing template blocks, script sections, and style blocks.\n"
+             f"Only add the elements and bindings specified in the operations above."
+    )
 
     spec = f"""SYMBOLIC SPECIFICATION — DO NOT DEVIATE
 
-File: {plan.target_file_rel}
+File: {target_file_rel}
 Current content provided below.
 
 Operations to apply:
 {operations_text}
-Render the complete updated file as valid TypeScript.
-Use Pinia defineStore syntax.
-Do not add imports that are not already present.
-Do not add fields or actions beyond those specified above.
+{instructions}
 
 === CURRENT FILE CONTENT ===
 {clean_content}"""
 
     return spec
+
+
+def _build_multifile_spec(plan: MutationPlan) -> str:
+    """Build symbolic spec for multi-file tasks (Medium, Hard)."""
+    from .intent_parser import (
+        AddFieldOperation, MutateActionOperation, AddImportOperation,
+        AddTemplateElementOperation, AddSetupBindingOperation,
+        AddMethodOperation, AddActionOperation
+    )
+
+    # Build a section for each file
+    file_sections = []
+
+    for target_file_rel in sorted(plan.operations_by_file.keys()):
+        operations = plan.operations_by_file[target_file_rel]
+
+        # Build operations text for this file
+        ops_text = ""
+        for i, op in enumerate(operations, 1):
+            if isinstance(op, AddImportOperation):
+                ops_text += f"{i}. ADD_IMPORT:\n   {op.import_statement}\n"
+            elif isinstance(op, AddTemplateElementOperation):
+                ops_text += (
+                    f"{i}. ADD_TEMPLATE_ELEMENT (next to '{op.insert_adjacent_to}'):\n"
+                    f"   {op.element_html}\n"
+                )
+            elif isinstance(op, AddSetupBindingOperation):
+                ops_text += f"{i}. ADD_SETUP_BINDING:\n   {op.binding_statement}\n"
+            elif isinstance(op, AddMethodOperation):
+                ops_text += (
+                    f"{i}. ADD_METHOD '{op.method_name}':\n"
+                    f"   {op.method_body}\n"
+                )
+            elif isinstance(op, AddActionOperation):
+                ops_text += (
+                    f"{i}. ADD_ACTION '{op.action_name}':\n"
+                    f"   {op.action_body}\n"
+                )
+
+        # Get file extension to determine content stripper
+        is_vue = target_file_rel.endswith('.vue')
+        content = plan.file_contents[target_file_rel]
+        clean_content = _extract_vue_skeleton(content) if is_vue else _extract_store_skeleton(content)
+
+        # Build file section
+        file_sections.append(
+            f"─── FILE: {target_file_rel} ───\n"
+            f"Operations to apply:\n{ops_text}\n"
+            f"Current content:\n{clean_content}"
+        )
+
+    # Build constraints section if any
+    constraints_text = ""
+    if plan.constraints:
+        constraints_text = "\nCONSTRAINTS (must enforce):\n"
+        for constraint in plan.constraints:
+            constraints_text += f"- {constraint.target_file}: must NOT import '{constraint.forbidden_module}'\n"
+
+    spec = f"""SYMBOLIC SPECIFICATION — DO NOT DEVIATE
+
+This task spans multiple files. Render each file completely and separately.
+
+{chr(10).join(file_sections)}{constraints_text}
+
+Instructions:
+1. Render each file completely — including all existing code
+2. Apply ONLY the operations specified above
+3. Do not add imports that are not already present (except ADD_IMPORT operations)
+4. Enforce all constraints — do not violate forbidden import rules
+5. For Vue files: preserve template, script, and style blocks exactly as they are, only adding to them
+6. For TypeScript files: preserve all existing exports and functionality
+
+Output format: one code block per file, clearly labeled with the filename."""
+
+    return spec
+
+
+def _extract_vue_skeleton(content: str) -> str:
+    """
+    Extract meaningful parts of a Vue .vue file.
+
+    Preserves:
+    - All <template> block content (up to 50 lines if very long)
+    - <script setup> or <script> block (imports + bindings, not styles)
+    - Omits: <style> blocks, DUMMY_ASSETS, boilerplate comments
+
+    Returns: cleaned Vue file skeleton
+    """
+    lines = content.split('\n')
+    skeleton = []
+    in_style = False
+    in_dummy = False
+    in_template = False
+    in_script = False
+    template_lines = 0
+
+    for line in lines:
+        stripped = line.strip()
+
+        # Skip DUMMY_ASSETS block
+        if 'DUMMY_ASSETS' in line and '=' in line:
+            in_dummy = True
+        if in_dummy:
+            if stripped.endswith('};'):
+                in_dummy = False
+            continue
+
+        # Skip <style> blocks
+        if '<style' in line.lower():
+            in_style = True
+        if in_style:
+            skeleton.append(line)
+            if '</style>' in line.lower():
+                in_style = False
+            continue
+
+        # Collect <template> block
+        if '<template' in line.lower():
+            in_template = True
+        if in_template:
+            skeleton.append(line)
+            template_lines += 1
+            if template_lines > 50 and '</template>' in line.lower():
+                in_template = False
+            if '</template>' in line.lower():
+                in_template = False
+            continue
+
+        # Collect <script> block
+        if '<script' in line.lower():
+            in_script = True
+        if in_script:
+            skeleton.append(line)
+            if '</script>' in line.lower():
+                in_script = False
+            continue
+
+        # Skip random boilerplate comments
+        if '/**' in line or (stripped.startswith('*') and len(stripped) > 80):
+            continue
+
+        # Collect other meaningful lines (imports, exports, etc)
+        if stripped.startswith('import ') or stripped.startswith('export '):
+            skeleton.append(line)
+
+    return '\n'.join(skeleton).strip()
 
 
 if __name__ == "__main__":

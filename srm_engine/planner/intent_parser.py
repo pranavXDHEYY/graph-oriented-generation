@@ -38,7 +38,67 @@ class MutateActionOperation:
     add_statement: str      # e.g. "this.lastLogin = '2026-03-08'"
 
 
-OperationSpec = Union[AddFieldOperation, MutateActionOperation]
+@dataclass
+class AddImportOperation:
+    """Specification: Add an import statement to a file."""
+    operation: Literal["ADD_IMPORT"]
+    target_file: str        # e.g. "src/components/HeaderWidget.vue"
+    import_statement: str   # e.g. "import { useAuthStore } from '../stores/authStore'"
+
+
+@dataclass
+class AddTemplateElementOperation:
+    """Specification: Add an HTML element to a Vue template."""
+    operation: Literal["ADD_TEMPLATE_ELEMENT"]
+    target_file: str        # must be a .vue file
+    element_html: str       # e.g. '<button @click="logout">Logout</button>'
+    insert_adjacent_to: str # hint for placement, e.g. "user role"
+
+
+@dataclass
+class AddSetupBindingOperation:
+    """Specification: Add a binding statement to Vue script setup."""
+    operation: Literal["ADD_SETUP_BINDING"]
+    target_file: str        # e.g. "src/components/HeaderWidget.vue"
+    binding_statement: str  # e.g. "const { logout } = useAuthStore()"
+
+
+@dataclass
+class AddMethodOperation:
+    """Specification: Add a method to a service file."""
+    operation: Literal["ADD_METHOD"]
+    target_file: str        # e.g. "src/services/api_client.ts"
+    method_name: str        # e.g. "deleteAccount"
+    method_body: str        # complete method body as string
+
+
+@dataclass
+class AddActionOperation:
+    """Specification: Add an action to a Pinia store."""
+    operation: Literal["ADD_ACTION"]
+    target_file: str        # e.g. "src/stores/authStore.ts"
+    action_name: str        # e.g. "deleteUser"
+    action_body: str        # complete action body as string
+
+
+@dataclass
+class ForbiddenImportConstraint:
+    """Specification: A file must NOT contain an import from a given module."""
+    operation: Literal["FORBIDDEN_IMPORT"]
+    target_file: str        # file that must NOT contain the import
+    forbidden_module: str   # e.g. "api_client"
+
+
+OperationSpec = Union[
+    AddFieldOperation,
+    MutateActionOperation,
+    AddImportOperation,
+    AddTemplateElementOperation,
+    AddSetupBindingOperation,
+    AddMethodOperation,
+    AddActionOperation,
+    ForbiddenImportConstraint,
+]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -71,6 +131,119 @@ SET_VALUE_RE = re.compile(r"set\s+it\s+to\s+['\"]([^'\"]+)['\"]", re.IGNORECASE)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Task-Specific Parsers
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _parse_medium(prompt: str) -> List[OperationSpec]:
+    """
+    Parse Medium task: Wire a Logout button in HeaderWidget.vue to useAuthStore.
+
+    Expected pattern:
+    "Refactor `src/components/HeaderWidget.vue` to include a 'Logout' button next to
+     the user role. Wire the click event to call the `logout` action from `useAuthStore`."
+    """
+    operations: List[OperationSpec] = []
+
+    # Extract target file
+    file_match = FILE_PATTERN.search(prompt)
+    if not file_match or '.vue' not in file_match.group(1):
+        raise IntentParseError("Medium task requires a .vue file target")
+    target_file = file_match.group(1)
+
+    # Detect need for ADD_IMPORT
+    if 'useAuthStore' in prompt:
+        operations.append(AddImportOperation(
+            operation="ADD_IMPORT",
+            target_file=target_file,
+            import_statement="import { useAuthStore } from '../stores/authStore'",
+        ))
+
+    # Detect need for ADD_SETUP_BINDING
+    if 'useAuthStore' in prompt:
+        operations.append(AddSetupBindingOperation(
+            operation="ADD_SETUP_BINDING",
+            target_file=target_file,
+            binding_statement="const { logout } = useAuthStore()",
+        ))
+
+    # Detect need for ADD_TEMPLATE_ELEMENT (Logout button)
+    if 'logout' in prompt.lower() and 'button' in prompt.lower():
+        operations.append(AddTemplateElementOperation(
+            operation="ADD_TEMPLATE_ELEMENT",
+            target_file=target_file,
+            element_html='<button @click="logout">Logout</button>',
+            insert_adjacent_to="user role",
+        ))
+
+    if not operations:
+        raise IntentParseError("Medium task pattern not recognized")
+
+    return operations
+
+
+def _parse_hard(prompt: str) -> List[OperationSpec]:
+    """
+    Parse Hard task: Implement Delete Account feature across 3 files with constraint.
+
+    Expected pattern:
+    "Implement a 'Delete Account' feature. Add a `deleteAccount` API call in
+     `src/services/api_client.ts` that posts to '/delete', create a `deleteUser` action
+     in `authStore.ts` that calls it, and add a 'Delete' button in
+     `src/views/UserSettings.vue` to trigger it. You must NOT import `api_client.ts`
+     directly into the Vue component."
+    """
+    operations: List[OperationSpec] = []
+
+    # Extract all file paths from backtick-enclosed paths
+    files = FILE_PATTERN.findall(prompt)
+
+    # Infer files from keywords (or use extracted files as fallback)
+    api_client_file = next((f for f in files if 'api_client' in f), 'src/services/api_client.ts')
+    auth_store_file = next((f for f in files if 'authStore' in f), 'src/stores/authStore.ts')
+    user_settings_file = next((f for f in files if 'UserSettings' in f), 'src/views/UserSettings.vue')
+
+    # ADD_METHOD to api_client.ts
+    operations.append(AddMethodOperation(
+        operation="ADD_METHOD",
+        target_file=api_client_file,
+        method_name="deleteAccount",
+        method_body="async deleteAccount() { return this.post('/delete'); }",
+    ))
+
+    # ADD_ACTION to authStore.ts
+    operations.append(AddActionOperation(
+        operation="ADD_ACTION",
+        target_file=auth_store_file,
+        action_name="deleteUser",
+        action_body="async deleteUser() { await api.deleteAccount(); this.token = null; this.user = null; }",
+    ))
+
+    # ADD_SETUP_BINDING to UserSettings.vue
+    operations.append(AddSetupBindingOperation(
+        operation="ADD_SETUP_BINDING",
+        target_file=user_settings_file,
+        binding_statement="const { deleteUser } = useAuthStore()",
+    ))
+
+    # ADD_TEMPLATE_ELEMENT to UserSettings.vue
+    operations.append(AddTemplateElementOperation(
+        operation="ADD_TEMPLATE_ELEMENT",
+        target_file=user_settings_file,
+        element_html='<button @click="deleteUser">Delete Account</button>',
+        insert_adjacent_to="existing buttons",
+    ))
+
+    # FORBIDDEN_IMPORT constraint on UserSettings.vue
+    operations.append(ForbiddenImportConstraint(
+        operation="FORBIDDEN_IMPORT",
+        target_file=user_settings_file,
+        forbidden_module="api_client",
+    ))
+
+    return operations
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Public API
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -78,19 +251,37 @@ def parse_intent(prompt: str) -> List[OperationSpec]:
     """
     Rule-based parser: converts natural language prompt to structured OperationSpec.
 
-    For the Easy task (ADD_FIELD + MUTATE_ACTION), extracts:
-    1. Target file path (via FILE_PATTERN)
-    2. ADD_FIELD: field name and type (via ADD_FIELD_RE + STATE_RE)
-    3. MUTATE_ACTION: action name and statement to add (via ACTION_RE + SET_VALUE_RE)
+    Dispatches to task-specific handlers:
+    - Easy: ADD_FIELD + MUTATE_ACTION on Pinia store (single file)
+    - Medium: ADD_IMPORT + ADD_SETUP_BINDING + ADD_TEMPLATE_ELEMENT on Vue component
+    - Hard: Multi-file feature with forbidden import constraint
 
     Args:
         prompt: Natural language instruction string.
 
     Returns:
-        List[OperationSpec]: Ordered list of operations (ADD_FIELD before MUTATE_ACTION).
+        List[OperationSpec]: Ordered list of operations appropriate for the task level.
 
     Raises:
         IntentParseError: If mandatory patterns don't match.
+    """
+    # Detect task level by keywords
+    if 'Delete Account' in prompt or 'deleteAccount' in prompt:
+        return _parse_hard(prompt)
+    elif 'Logout' in prompt and '.vue' in prompt:
+        return _parse_medium(prompt)
+    else:
+        # Default to Easy task parsing
+        return _parse_easy(prompt)
+
+
+def _parse_easy(prompt: str) -> List[OperationSpec]:
+    """
+    Parse Easy task: ADD_FIELD + MUTATE_ACTION on Pinia store (single file).
+
+    Expected pattern:
+    "Write the code to add a `lastLogin` string timestamp to the default state
+     in `src/stores/authStore.ts` and update the `login` action to set it to '2026-03-08'."
     """
     operations: List[OperationSpec] = []
 
