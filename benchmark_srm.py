@@ -67,10 +67,21 @@ def _get_topological_render_order(graph, target_files_abs: list) -> list:
     # Get the subgraph containing only the target files
     subgraph_nodes = [n for n in graph.nodes() if n in target_files_abs]
 
-    # Topological sort ensures dependencies come before dependents
-    # If there's a cycle or the graph doesn't contain all files, fall back to input order
+    # Topological sort to determine render order for dependencies.
+    # Graph edges: importing_file → imported_file (A imports B).
+    # Reverse the graph so topological_sort puts dependencies (no incoming edges) first.
+    # If the graph has no relevant edges or topological sort fails, use input order.
     try:
-        topo_order = list(nx.topological_sort(graph.subgraph(subgraph_nodes)))
+        # Check if there are any edges between target files
+        subgraph = graph.subgraph(subgraph_nodes)
+        if len(subgraph.edges()) == 0:
+            # No dependencies between target files; input order is fine
+            return target_files_abs
+
+        # Reverse graph so dependencies appear first in topological sort
+        reversed_graph = graph.reverse()
+        reversed_subgraph = reversed_graph.subgraph(subgraph_nodes)
+        topo_order = list(nx.topological_sort(reversed_subgraph))
         # Filter to only include target files
         return [f for f in topo_order if f in target_files_abs]
     except:

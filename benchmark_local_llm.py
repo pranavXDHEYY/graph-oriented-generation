@@ -608,12 +608,8 @@ def score_response(level, response, isolated_count=None):
     if level == "Easy":
         # Check structural completeness first (before string matching)
         is_complete, reason = _is_structurally_complete_pinia(response)
-        if not is_complete:
-            # If structurally incomplete, fail the entire response
-            failures = [f"[red]Structural issue: {reason}[/red]"]
-            return "[bold red]FAIL (0/5)[/bold red]", 0, 5, failures
 
-        # Structurally complete: proceed with semantic checks
+        # Always run semantic checks regardless of structural completeness
         passed, total, failures = _check(
             response,
             required=[
@@ -626,15 +622,17 @@ def score_response(level, response, isolated_count=None):
                 ("does not import React hooks",     ["from 'react'", 'from "react"']),
             ],
         )
+
+        # If structurally incomplete, prepend structural failure and override verdict to FAIL
+        if not is_complete:
+            failures = [f"[red]STRUCTURAL: {reason}[/red]"] + failures
+            # Return FAIL verdict but show partial credit from semantic checks
+            return f"[bold red]FAIL ({passed}/{total})[/bold red]", passed, total, failures
     elif level == "Medium":
         # Check structural completeness first (before string matching)
         is_complete, reason = _is_structurally_complete_vue(response)
-        if not is_complete:
-            # If structurally incomplete, fail the entire response
-            failures = [f"[red]Structural issue: {reason}[/red]"]
-            return "[bold red]FAIL (0/4)[/bold red]", 0, 4, failures
 
-        # Structurally complete: proceed with semantic checks
+        # Always run semantic checks regardless of structural completeness
         passed, total, failures = _check(
             response,
             required=[
@@ -647,6 +645,12 @@ def score_response(level, response, isolated_count=None):
                 ("does not import React hooks",     ["from 'react'", 'from "react"']),
             ],
         )
+
+        # If structurally incomplete, prepend structural failure and override verdict to FAIL
+        if not is_complete:
+            failures = [f"[red]STRUCTURAL: {reason}[/red]"] + failures
+            # Return FAIL verdict but show partial credit from semantic checks
+            return f"[bold red]FAIL ({passed}/{total})[/bold red]", passed, total, failures
     elif level == "Hard":
         # Hard task requires per-file validation for multi-file responses.
         # The LLM should produce three separate file blocks: api_client.ts, authStore.ts, UserSettings.vue
@@ -736,16 +740,15 @@ def score_response(level, response, isolated_count=None):
                     is_complete, reason = _is_structurally_complete_pinia(auth_store_block)
                     if not is_complete:
                         failures.append(f"[red][authStore.ts] STRUCTURAL: {reason}[/red]")
-                        total += 1
                     else:
-                        # Must have deleteUser action
+                        # Structural check passed, now check semantic: deleteUser action
                         has_delete_user = "deleteUser" in auth_store_block
 
                         if has_delete_user:
                             passed += 1
                         else:
                             failures.append("[authStore.ts] missing deleteUser action")
-                        total += 1
+                    total += 1
                 else:
                     failures.append("[authStore.ts] not found in response")
                     total += 1
@@ -756,16 +759,15 @@ def score_response(level, response, isolated_count=None):
                     is_complete, reason = _is_structurally_complete_vue(vue_block)
                     if not is_complete:
                         failures.append(f"[red][UserSettings.vue] STRUCTURAL: {reason}[/red]")
-                        total += 1
                     else:
-                        # Must have Delete button
+                        # Structural check passed, now check semantic: Delete button
                         has_button = "Delete" in vue_block or "delete" in vue_block.lower()
 
                         if has_button:
                             passed += 1
                         else:
                             failures.append("[UserSettings.vue] missing Delete button")
-                        total += 1
+                    total += 1
                 else:
                     failures.append("[UserSettings.vue] not found in response")
                     total += 1
@@ -801,12 +803,29 @@ def score_response(level, response, isolated_count=None):
     else:
         return "N/A", 0, 0, []
 
-    if passed == total:
-        label = f"[bold green]PASS ({passed}/{total})[/bold green]"
-    elif passed >= total * 0.6:
-        label = f"[bold yellow]PARTIAL ({passed}/{total})[/bold yellow]"
+    # For Hard task with single-block responses (unable to validate per-file),
+    # cap verdict at PARTIAL even if all checks pass
+    hard_task_non_validatable = (
+        level == "Hard" and
+        any("unable to validate per-file" in str(f) for f in failures)
+    )
+
+    if hard_task_non_validatable:
+        # Cap at PARTIAL for non-per-file-validated multi-file responses
+        if passed == total:
+            label = f"[bold yellow]PARTIAL ({passed}/{total})[/bold yellow]"
+        elif passed >= total * 0.6:
+            label = f"[bold yellow]PARTIAL ({passed}/{total})[/bold yellow]"
+        else:
+            label = f"[bold red]FAIL ({passed}/{total})[/bold red]"
     else:
-        label = f"[bold red]FAIL ({passed}/{total})[/bold red]"
+        # Normal verdict logic for per-file-validated or single-file responses
+        if passed == total:
+            label = f"[bold green]PASS ({passed}/{total})[/bold green]"
+        elif passed >= total * 0.6:
+            label = f"[bold yellow]PARTIAL ({passed}/{total})[/bold yellow]"
+        else:
+            label = f"[bold red]FAIL ({passed}/{total})[/bold red]"
     return label, passed, total, failures
 
 
