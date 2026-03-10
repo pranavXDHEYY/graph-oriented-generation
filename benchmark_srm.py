@@ -94,8 +94,9 @@ def run_srm_pipeline(prompt_text: str, target_repo: str, graph) -> dict:
     # ── Step 3: Build Renderer Prompt (deterministic) ────────────────────────
     renderer_prompt = build_renderer_prompt(plan) + MUZZLE
 
-    # Count tokens in the renderer prompt (this is what the LLM sees)
-    tokens_in = get_token_count([plan.target_file_abs])
+    # Count tokens in all target files (this is what the LLM sees)
+    target_files_abs = list(plan.file_paths_abs.values())
+    tokens_in = get_token_count(target_files_abs)
     local_time = time.time() - start_time
 
     # ── Step 4: LLM Renderer (single call, no retry) ─────────────────────────
