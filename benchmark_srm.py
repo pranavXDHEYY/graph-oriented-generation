@@ -188,7 +188,8 @@ def run_srm_pipeline(prompt_text: str, target_repo: str, graph) -> dict:
         "tokens_out": 150,
         "response": response,
         "patches_applied": 0,
-        "renderer_prompts": renderer_prompts,  # For debugging/verification
+        "renderer_prompt": renderer_prompts[0] if renderer_prompts else "",  # For display (first prompt if multi-file)
+        "renderer_prompts": renderer_prompts,  # For debugging (all prompts)
         "operations": ops,
         "plan": plan,
         "is_multi_file": is_multi_file,
