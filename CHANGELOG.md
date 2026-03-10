@@ -5,6 +5,29 @@ Format: dated entries, one line per change, design decisions noted where relevan
 
 ---
 
+## 2026-03-10 (continued) — Measurement Integrity: Three Critical Fixes
+
+**Fix 1: Structural failure shows honest verdict with partial credit**
+- Structural completeness checked BEFORE string matching (still catches missing code blocks)
+- But failures don't zero out the score: FAIL (3/5) instead of FAIL (0/5) if some semantics present
+- Distinguishes structural problems from semantic absence more honestly
+
+**Fix 2: Topological ordering of multi-file renders corrected**
+- Dependencies now render BEFORE dependents (api_client → authStore → UserSettings)
+- Handles empty graphs gracefully (uses input order if no edges between target files)
+- Prevents arbitrary file ordering that could mask per-file rendering issues
+
+**Fix 3: Multi-file single-block responses capped at PARTIAL**
+- RAG/GOG responses that can't be per-file validated flagged and capped at PARTIAL
+- Prevents single-block responses from scoring PASS even if all keywords present
+- Enforces per-file validation standard for multi-file tasks (Hard)
+
+**Rationale:** These fixes make measurement more honest without changing model behavior.
+The 0.5B results will still look bad—but now the badness is accurately attributed to its
+actual failure mode (structural incompleteness, not just semantic keyword absence).
+
+---
+
 ## 2026-03-10 (continued) — SRM Validation: Model Capability Threshold Identified
 
 **Empirical Finding:** The SRM hypothesis is **scoped by model size** — not disproven.
