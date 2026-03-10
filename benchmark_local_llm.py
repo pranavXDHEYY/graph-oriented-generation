@@ -516,6 +516,73 @@ def _extract_code_blocks(response):
     return blocks
 
 
+def _is_structurally_complete_pinia(response: str) -> tuple[bool, str]:
+    """
+    Check if a Pinia store response is structurally complete.
+
+    Returns: (is_complete: bool, reason: str)
+
+    A complete Pinia store must have:
+    - defineStore call
+    - state() function definition (not just state: {} in the arg object)
+    - actions object
+    - The specific action being mutated
+    """
+    missing = []
+
+    # Must have defineStore
+    if 'defineStore' not in response:
+        missing.append("missing defineStore() call")
+
+    # Must have state definition (could be arrow function or regular function)
+    if 'state:' not in response and 'state(' not in response:
+        missing.append("missing state definition")
+
+    # Must have opening brace for state object
+    if 'state: () => ({' not in response and 'state: () => {' not in response:
+        missing.append("state not properly initialized as object")
+
+    # Must have actions block
+    if 'actions:' not in response and 'actions {' not in response:
+        missing.append("missing actions object")
+
+    if missing:
+        return False, ", ".join(missing)
+    return True, "structurally complete"
+
+
+def _is_structurally_complete_vue(response: str) -> tuple[bool, str]:
+    """
+    Check if a Vue component response is structurally complete.
+
+    Returns: (is_complete: bool, reason: str)
+
+    A complete Vue component must have:
+    - <script> or <script setup> block
+    - <template> block
+    """
+    missing = []
+
+    # Must have script block
+    if '<script' not in response:
+        missing.append("missing <script> block")
+
+    # Must have template block
+    if '<template>' not in response:
+        missing.append("missing <template> block")
+
+    # Must have closing tags
+    if '</script>' not in response:
+        missing.append("missing </script> closing tag")
+
+    if '</template>' not in response:
+        missing.append("missing </template> closing tag")
+
+    if missing:
+        return False, ", ".join(missing)
+    return True, "structurally complete"
+
+
 def _check(response, required=(), forbidden=()):
     """Return (passed: int, total: int, failures: list[str])."""
     checks = []
@@ -539,6 +606,14 @@ def score_response(level, response, isolated_count=None):
     When isolated_count == 1, only checks relevant to a single-file answer apply.
     """
     if level == "Easy":
+        # Check structural completeness first (before string matching)
+        is_complete, reason = _is_structurally_complete_pinia(response)
+        if not is_complete:
+            # If structurally incomplete, fail the entire response
+            failures = [f"[red]Structural issue: {reason}[/red]"]
+            return "[bold red]FAIL (0/5)[/bold red]", 0, 5, failures
+
+        # Structurally complete: proceed with semantic checks
         passed, total, failures = _check(
             response,
             required=[
@@ -552,6 +627,14 @@ def score_response(level, response, isolated_count=None):
             ],
         )
     elif level == "Medium":
+        # Check structural completeness first (before string matching)
+        is_complete, reason = _is_structurally_complete_vue(response)
+        if not is_complete:
+            # If structurally incomplete, fail the entire response
+            failures = [f"[red]Structural issue: {reason}[/red]"]
+            return "[bold red]FAIL (0/4)[/bold red]", 0, 4, failures
+
+        # Structurally complete: proceed with semantic checks
         passed, total, failures = _check(
             response,
             required=[
@@ -620,51 +703,69 @@ def score_response(level, response, isolated_count=None):
                 total = 0
                 failures = []
 
-                # 1. Check api_client.ts
+                # 1. Check api_client.ts (TypeScript service file)
                 if api_client_block:
-                    # Must have deleteAccount function that posts to /delete
-                    has_delete_account = "deleteAccount" in api_client_block
-                    has_endpoint = "/delete" in api_client_block
-
-                    if has_delete_account:
-                        passed += 1
+                    # Check structural completeness first
+                    # For service files, must have export keyword
+                    if 'export' not in api_client_block:
+                        failures.append("[red][api_client.ts] STRUCTURAL: missing export statements[/red]")
+                        total += 2
                     else:
-                        failures.append("[api_client.ts] missing deleteAccount function")
-                    total += 1
+                        # Must have deleteAccount function that posts to /delete
+                        has_delete_account = "deleteAccount" in api_client_block
+                        has_endpoint = "/delete" in api_client_block
 
-                    if has_endpoint:
-                        passed += 1
-                    else:
-                        failures.append("[api_client.ts] missing /delete endpoint")
-                    total += 1
+                        if has_delete_account:
+                            passed += 1
+                        else:
+                            failures.append("[api_client.ts] missing deleteAccount function")
+                        total += 1
+
+                        if has_endpoint:
+                            passed += 1
+                        else:
+                            failures.append("[api_client.ts] missing /delete endpoint")
+                        total += 1
                 else:
                     failures.append("[api_client.ts] not found in response")
                     total += 2
 
-                # 2. Check authStore.ts
+                # 2. Check authStore.ts (Pinia store)
                 if auth_store_block:
-                    # Must have deleteUser action
-                    has_delete_user = "deleteUser" in auth_store_block
-
-                    if has_delete_user:
-                        passed += 1
+                    # Check structural completeness first
+                    is_complete, reason = _is_structurally_complete_pinia(auth_store_block)
+                    if not is_complete:
+                        failures.append(f"[red][authStore.ts] STRUCTURAL: {reason}[/red]")
+                        total += 1
                     else:
-                        failures.append("[authStore.ts] missing deleteUser action")
-                    total += 1
+                        # Must have deleteUser action
+                        has_delete_user = "deleteUser" in auth_store_block
+
+                        if has_delete_user:
+                            passed += 1
+                        else:
+                            failures.append("[authStore.ts] missing deleteUser action")
+                        total += 1
                 else:
                     failures.append("[authStore.ts] not found in response")
                     total += 1
 
-                # 3. Check UserSettings.vue
+                # 3. Check UserSettings.vue (Vue component)
                 if vue_block:
-                    # Must have Delete button
-                    has_button = "Delete" in vue_block or "delete" in vue_block.lower()
-
-                    if has_button:
-                        passed += 1
+                    # Check structural completeness first
+                    is_complete, reason = _is_structurally_complete_vue(vue_block)
+                    if not is_complete:
+                        failures.append(f"[red][UserSettings.vue] STRUCTURAL: {reason}[/red]")
+                        total += 1
                     else:
-                        failures.append("[UserSettings.vue] missing Delete button")
-                    total += 1
+                        # Must have Delete button
+                        has_button = "Delete" in vue_block or "delete" in vue_block.lower()
+
+                        if has_button:
+                            passed += 1
+                        else:
+                            failures.append("[UserSettings.vue] missing Delete button")
+                        total += 1
                 else:
                     failures.append("[UserSettings.vue] not found in response")
                     total += 1
