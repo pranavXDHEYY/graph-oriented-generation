@@ -5,6 +5,18 @@ Format: dated entries, one line per change, design decisions noted where relevan
 
 ---
 
+## 2026-03-13 — Add compression threshold experiment (symbol_distillation/)
+
+- Replaced exploratory symbol_distillation work with a rigorous compression threshold experiment
+- problems.py: 5 problem types × 5 compression levels, each with known correct answer and grading notes
+- run_experiment.py: Ollama runner capturing RunMetrics per model × problem × level; compression ratio relative to L0 tiktoken baseline
+- grade_responses.py: deterministic rubric for math/algebra (numeric match), execution-based for code (test suite), heuristic regex for logic/causal; behavioral flag detectors for refusal, restatement, reasoning_present, answer_in_kind
+- analyze.py: computes compression cliff per (model, problem_type), efficiency scores, restatement rates; prints summary table
+- visualize.py: correctness heatmap, per-type curves, restatement rate heatmap
+- Added matplotlib and ollama to requirements.txt (were missing)
+- Removed duplicate networkx entry from requirements.txt
+- Design decision: causal and logic problems are intentional fallacy tests (affirming the consequent); correct answer is "not necessarily" / "no" — most models will fail these at all compression levels, and the experiment measures whether compression makes it worse or triggers different failure modes
+
 ## 2026-03-10 (continued) — Measurement Integrity: Three Critical Fixes
 
 **Fix 1: Structural failure shows honest verdict with partial credit**

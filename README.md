@@ -1,201 +1,304 @@
-# Graph-Oriented Generation (GOG) — Symbolic Reasoning Model (SRM)
+# Graph-Oriented Generation & Symbolic Reasoning Membrane
+### An empirical research program into the structure of meaning
 
-> **Active research prototype.** Benchmarks are reproducible and results are real. Structural feedback and contributions welcome via issues or pull requests.
-
-This repository implements and benchmarks **Graph-Oriented Generation (GOG)**, a context-isolation strategy for LLM-assisted code tasks that replaces probabilistic vector retrieval with deterministic graph traversal over a project's actual import dependency structure.
-
-The accompanying white paper: [`Graph_Oriented_Generation__GOG_.pdf`](./Graph_Oriented_Generation__GOG_.pdf)
+> **Active research.** Benchmarks are reproducible, results are real,
+> and the research is ongoing. Contributions, challenges, and 
+> replications welcome via issues or pull requests.
 
 ---
 
-## The Problem
+## What this repository is
 
-Standard RAG retrieves context by cosine similarity between a prompt embedding and a vector index. For open-domain question answering, this is reasonable. For software codebases, it introduces a structural mismatch:
+This repository documents two connected research programs.
 
-> A software repository is not a collection of semantically similar documents — it is a directed graph of hard import dependencies. Two files can be semantically distant in embedding space yet be the only files that directly depend on each other.
+**GOG (Graph-Oriented Generation)** replaces probabilistic vector 
+retrieval with deterministic graph traversal over a codebase's actual 
+import dependency structure. It is complete, benchmarked, and 
+validated. The paper is available here: 
+[`GOG_PAPER.pdf`](./GOG_PAPER.pdf)
 
-GOG addresses this by building a `networkx` DAG from actual `import` statements parsed by `tree-sitter`. Context isolation becomes a graph traversal problem, not a similarity search. The result is a smaller, structurally correct context payload with measurable token reduction and no false positives from semantic noise.
+**SRM (Symbolic Reasoning Membrane)** is the deeper investigation 
+that GOG made possible. It asks: if structure can control a language 
+model's output reliably, what is the minimum structure required? What 
+are the atomic units of meaning that a language model recognizes, 
+responds to, and can combine into richer concepts?
 
-**Relation to prior work:** Microsoft's [GraphRAG](https://arxiv.org/abs/2404.16130) (Edge et al., 2024) applies graph structures to knowledge graphs over document corpora for summarisation. GOG operates on a different graph type — the structural import DAG of a software project — targeting dependency isolation for code generation rather than community-aware document retrieval. The approaches are complementary.
+Eighteen experiments later, that question has a partial and surprising 
+answer. The full research paper is here: 
+[`SRM_PAPER.md`](./SRM_PAPER.md)
+
+---
+
+## The core finding
+
+Across four language model architectures — Qwen 2.5 (0.5B), 
+Gemma 3 (1B), LLaMA 3.2 (1B), and SmolLM2 (360M) — we found 
+consistent empirical evidence for a primitive layer underlying 
+language model behavior.
+
+Anna Wierzbicka proposed in the 1970s that all human languages 
+share approximately 65 irreducible semantic concepts — WANT, KNOW, 
+FEEL, GOOD, BAD, DO, HAPPEN — from which all other meaning is 
+constructed. Cowen and Keltner identified 27 universal emotional 
+states in 2017.
+
+We tested whether these primitives appear as measurable activation 
+patterns in small language models. They do.
+
+Specifically:
+
+**The Layer 0a/0b distinction is real and architecture-independent.**
+Scaffolding primitives — SOMEONE, TIME, PLACE — produce abstract, 
+relational responses. Content primitives — FEAR, GRIEF, JOY, ANGER, 
+RELIEF, NOSTALGIA — produce phenomenological, embodied responses. 
+The activation gap between these two classes averaged +0.245 across 
+all four models. The direction was consistent in every model tested.
+
+**Primitive composition produces predictable Layer 1 concepts.**
+Eleven operator-seed combinations matched pre-registered predictions 
+in three out of four model architectures:
+
+| Combination | Predicted | Validated |
+|-------------|-----------|-----------|
+| KNOW + FEAR | dread / awareness | ✓ 3/4 models |
+| FEEL + GRIEF | heartbreak / sorrow | ✓ 3/4 models |
+| WANT + FEAR | anxiety / avoidance | ✓ 3/4 models |
+| WANT + ANGER | ambition / revenge | ✓ 3/4 models |
+| TIME + GRIEF | mourning / melancholy | ✓ 3/4 models |
+| TIME + NOSTALGIA | memory / reminiscence | ✓ 3/4 models |
+| TIME + RELIEF | healing / recovery | ✓ 3/4 models |
+| WANT + GRIEF | longing / yearning | ✓ 3/4 models |
+| WANT + NOSTALGIA | longing / regret | ✓ 3/4 models |
+| FEEL + JOY | delight / bliss | ✓ 3/4 models |
+| KNOW + NOSTALGIA | wisdom / reflection | ✓ 3/4 models |
+
+**The scaling pattern has an implication.**
+The primitive activation gap is largest in the smallest model and 
+narrows as model size increases — not because content primitives 
+weaken, but because larger models develop richer phenomenological 
+access to scaffolding primitives too. As language models scale, they 
+appear to converge toward a more coherent internal representation of 
+the primitive layer. This may partly explain why larger models reason 
+better — they are closer to the atoms of meaning.
 
 ---
 
 ## Architecture
 
-**Phase 1 — Semantic Seeding.** The prompt is embedded with `all-MiniLM-L6-v2`. Nodes whose filename embeddings exceed a similarity threshold (`SEED_SIMILARITY_THRESHOLD = 0.25`) are selected as graph entry points.
+The SRM proposes a three-layer architecture:
+```
+Symbolic Reasoning Layer  (pure code — no LLM)
+         ↓
+    generates primitive combinations
+         ↓
+  Structure Membrane  (small LLM, role-conditioned)
+         ↓
+    translates structure into language
+         ↓
+  Language Output  (English or any modality)
+```
 
-**Phase 2 — Deterministic Traversal.** Shortest-path between seed pairs and transitive descendant expansion. No probabilistic inference after the seeding step. Only files reachable via real import edges are included.
+Structure is deterministic. Language is emergent. The membrane 
+carries structure into the language space and lets emergence do 
+the rest.
 
-**Phase 3 — Neuro-Symbolic Membrane (Tier 3).** After generation, the `SalienceEvaluator` extracts all `import` statements from the LLM's output via AST and checks each against the isolated subgraph. Illegal imports are patched in-place by resolving the correct path from the graph — zero retries, zero extra tokens.
+This is not a trained system. It is a theoretical architecture 
+grounded in eighteen empirical experiments. Building it is the 
+next phase.
 
-```mermaid
-flowchart TD
-    P["User Prompt"] --> S["Phase 1: Semantic Seeding\n(all-MiniLM-L6-v2)"]
-    S --> T["Phase 2: DAG Traversal\n(shortest path + descendants)"]
-    T --> ISO["Isolated Context\n(topologically bounded subgraph)"]
-    ISO --> T1["Tier 1: ChromaDB RAG\n(top-K vector chunks)"]
-    ISO --> T2["Tier 2: GOG Vanilla"]
-    ISO --> T3["Tier 3: GOG + Membrane"]
-    T3 --> MEM{"SalienceEvaluator"}
-    MEM -- "imports valid" --> OUT["Response passed through"]
-    MEM -- "violation found" --> PATCH["Graph resolves correct path\nPatch applied in-place"]
-    PATCH --> OUT
-    style MEM fill:#2c3e50,color:#fff
-    style OUT fill:#1a472a,color:#fff
-    style PATCH fill:#7d3c98,color:#fff
+---
+
+## GOG: The Foundation
+
+GOG was the first indication that something deeper was possible.
+
+It demonstrated that replacing natural language prompts with 
+deterministic symbolic specifications dramatically improves 
+correctness in small language models — a 0.5B parameter model 
+that fails completely on a reasoning task with a natural language 
+prompt succeeds completely with a symbolic spec.
+
+The key result:
+
+| Tier | Input | Correctness | Time |
+|------|-------|-------------|------|
+| RAG | 53,137-token corpus + raw prompt | FAIL 2/5 | 5.71s |
+| GOG | 6,323-token context + raw prompt | PARTIAL 4/5 | 11.63s |
+| SRM | 6,323-token context + symbolic spec | **PASS 5/5** | **0.94s** |
+
+The model did not fail because it could not write correct code. 
+It failed because it could not reason about what to write. 
+When the reasoning was done externally and passed in as structure, 
+the language capability was sufficient.
+
+GOG is complete and documented. The full paper, benchmark code, 
+and reproduction instructions are in [`/gog`](./gog).
+
+---
+
+## Repository Structure
+```
+/
+├── README.md                     this file
+├── GOG_PAPER.pdf                 GOG research paper
+├── SRM_RESEARCH.md               SRM research paper
+├── /gog                          GOG benchmark code
+│   ├── generate_dummy_repo.py
+│   ├── seed_RAG_and_GOG.py
+│   ├── benchmark_cloud_cli.py
+│   └── benchmark_local_llm.py
+├── /symbol_distillation          SRM experiments 1-18
+│   ├── experiment_1.py
+│   ├── ... 
+│   └── /semantic_primitives
+│       ├── wierzbicka_65_primitives.json
+│       ├── cowen_keltner_27_emotions.json
+│       ├── experiment_17_primitive_validation.py
+│       ├── experiment_17b_layer_distinction.py
+│       ├── experiment_17c_cross_model.py
+│       ├── experiment_18_composition.py
+│       └── primitive_summary.json
+└── /results                      all experiment outputs
 ```
 
 ---
 
-## Benchmark Design
+## Reproducing the SRM experiments
 
-Three pipelines run against a procedurally generated 100+ file Vue/TypeScript repository containing deliberate red-herring components — files that share keyword overlap with target prompts but have no structural connection to the execution path.
-
-| Tier | Pipeline | Context Source | Post-generation Constraint |
-|------|----------|---------------|---------------------------|
-| 1 | RAG Control | ChromaDB top-5 vector chunks | None |
-| 2 | GOG Vanilla | DAG-isolated subgraph | None |
-| 3 | GOG + Membrane | DAG-isolated subgraph | Deterministic import patching |
-
-**Tasks:**
-
-| Level | Task | Complexity |
-|-------|------|------------|
-| Easy | Add `lastLogin` timestamp to `authStore.ts` | Single-file mutation |
-| Medium | Wire Logout button in `HeaderWidget.vue` to `useAuthStore` | Two-file dependency bridge |
-| Hard | Implement Delete Account across three files without importing `api_client.ts` into the Vue component | Three-file topological constraint |
-
-### Representative Results
-
-**Cloud CLI (opencode, frontier model)**
-
-| Metric | Tier 1 · RAG | Tier 2 · GOG | Tier 3 · GOG + Membrane |
-|--------|-------------|-------------|------------------------|
-| Easy — Token Reduction | baseline | **88.1% ↓** | **88.1% ↓** |
-| Easy — Patches Applied | — | — | 1 |
-| Hard — Token Reduction | baseline | **89.9% ↓** | **89.9% ↓** |
-| Hard — Total Execution Time | 64.8s | 65.5s | **45.7s** |
-
-**Local GPU (llama3:8b, Ollama)**
-
-| Metric | Tier 1 · RAG | Tier 2 · GOG | Tier 3 · GOG + Membrane |
-|--------|-------------|-------------|------------------------|
-| Easy — Token Reduction | baseline | **88.1% ↓** | **88.1% ↓** |
-| Medium — Token Reduction | baseline | **23.7% ↓** | **23.7% ↓** |
-| Medium — Correctness | PASS 5/5 | PASS 5/5 | PASS 5/5 |
-| Hard — Token Reduction | baseline | **91.6% ↓** | **91.6% ↓** |
-| Hard — Total Execution Time | 45.8s | 48.9s | **39.4s** |
-
-On the Hard task, GOG isolated a single file from a 100+ file repository. Tier 3 produced a correct Vue component with zero hallucinated imports and no Membrane patches needed — the graph constraint prevented the import violation before generation.
-
-**Correctness rubric:** Deterministic string-matching against known-correct structural criteria (required keywords, forbidden imports). No second LLM call. Reports PASS / PARTIAL / FAIL alongside token metrics. Structural completeness (valid `defineStore` shape for Pinia stores, `<script>` + `<template>` blocks for Vue components) is verified before semantic string matching.
-
----
-
-## SRM Pilot: Symbolic Reasoning Offload
-
-GOG improves retrieval. The **Symbolic Reasoning Model (SRM)** extends this by offloading architectural *reasoning* to a deterministic planner entirely — the LLM receives a symbolic specification, not a natural language task.
-
-The pilot tests one question: does replacing the natural language prompt with a structured symbolic spec improve correctness for a sub-1B model?
-
-**Setup:** qwen2.5:0.5b (500M parameters), Easy task.
-
-| Tier | Input to LLM | Correctness | Time |
-|------|-------------|-------------|------|
-| Tier 1 · RAG | 53,137-token corpus + raw prompt | **FAIL 2/5** | 5.71s |
-| Tier 2 · GOG | 6,323-token isolated context + raw prompt | **PARTIAL 4/5** | 11.63s |
-| Tier 3 · SRM | 6,323-token isolated context + symbolic spec | **PASS 5/5** | **0.94s** |
-
-The 0.5B model's failures on Tiers 1 and 2 were not language failures — Tier 3 proves it can write correct Pinia syntax. They were reasoning failures. When told *exactly what to write* via symbolic specification rather than asked to *infer what to write* from natural language, the model succeeded completely.
-
-**Caveats:** Single task, procedurally generated repository, hand-written planner rules, structural rubric only. This is a proof of mechanism, not a proof of generalization. The capability threshold for reliable symbolic spec compliance lies between 0.5B and 8B parameters — llama3:8b passes all three difficulty levels under SRM. Multi-task validation and real-world repository evaluation are ongoing.
-
----
-
-## Research Roadmap
-
-| Track | Status | Description |
-|-------|--------|-------------|
-| **Track 1 — GOG** | ✓ Complete | Deterministic context isolation. This paper. |
-| **Track 2 — Membrane** | In progress | `patch()` implemented. Upstream mutation planner next. |
-| **Track 3 — SRM** | Pilot validated | Full symbolic reasoning offload. Multi-task validation ongoing. |
-
----
-
-## Known Limitations
-
-**Semantic seeder false positives.** The Medium task isolated `mockLogoutHandler.ts` alongside genuinely relevant files because it shares the `logout` keyword. Filename-level similarity cannot distinguish structurally relevant files from architecturally disconnected ones with overlapping vocabulary. Reachability-weighted scoring is the planned mitigation.
-
-**Lexical seeding degrades on indirect prompts.** Prompts without architectural vocabulary may fail to seed the graph, causing fallback to full-graph context. This is surfaced explicitly rather than silently degraded.
-
-**Benchmark is self-contained.** The target repository is procedurally generated. External validity against real-world codebases is planned.
-
-**Token counts are estimates.** `tiktoken` `cl100k_base` is used as a cross-model proxy.
-
-**CPU vs GPU timing.** Token reduction saves prefill time, which is fast relative to autoregressive decode on CPU. Wall-clock generation time changes little on CPU-only hardware. The primary benefit of GOG on CPU is context precision and API cost reduction, not local wall-clock speed.
-
----
-
-## Getting Started
-
+All experiments run locally via Ollama. No API keys required.
 ```bash
-pip install -r requirements.txt
-```
-
-Key dependencies: `networkx`, `tree-sitter`, `tree-sitter-typescript`, `chromadb`, `sentence-transformers`, `tiktoken`, `rich`.
-
-> **NumPy note:** `sentence-transformers` requires `numpy<2`. If your environment has NumPy 2.x, run `pip install "numpy<2"` first or use a virtual environment.
-
-**Cloud CLI benchmark:**
-```bash
-npm install -g opencode
-python3 generate_dummy_repo.py
-python3 seed_RAG_and_GOG.py
-python3 benchmark_cloud_cli.py
-```
-
-**Local benchmark (fully offline):**
-```bash
+# install Ollama
 curl -fsSL https://ollama.com/install.sh | sh
-ollama pull llama3:8b
+
+# pull the models used in cross-model validation
+ollama pull qwen2.5:0.5b
+ollama pull gemma3:1b
+ollama pull llama3.2:1b
+ollama pull smollm2:360m
+
+# install Python dependencies
+pip install requests
+
+# run primitive validation (experiment 17)
+cd symbol_distillation/semantic_primitives
+python3 experiment_17_primitive_validation.py
+
+# run cross-model validation (experiment 17c)
+python3 experiment_17c_cross_model.py
+
+# run composition experiment (experiment 18)
+python3 experiment_18_composition.py
+```
+
+Results are saved to `semantic_primitives/results_exp_*.json` 
+and `.csv`. The living summary document 
+`primitive_summary.json` accumulates findings across experiments.
+
+---
+
+## Reproducing the GOG benchmark
+```bash
+pip install -r gog/requirements.txt
+cd gog
 python3 generate_dummy_repo.py
 python3 seed_RAG_and_GOG.py
 python3 benchmark_local_llm.py
 ```
 
-Both scripts present an interactive difficulty selector (Easy / Medium / Hard / All).
-
-> **Model size note:** `qwen2.5:0.5b` will run but hits capability limits on Medium and Hard. `llama3:8b` or `qwen2.5:7b` is the recommended minimum for results that meaningfully test context isolation.
-
-> **GPU note:** Ollama uses automatic GPU detection. Force CPU-only with: `NUM_GPU=0 python3 benchmark_local_llm.py`.
+Full instructions including cloud CLI benchmark are in 
+[`/gog`](./gog).
 
 ---
 
-## A Note on Development Process
+## Open questions
 
-This project was built using an AI-assisted development workflow. Architecture, research direction, and all scientific claims were developed by the author. Implementation was carried out in close collaboration with AI coding assistants (Claude Code, Gemini CLI, GitHub Copilot) and reasoning assistants (Claude). Benchmark design, correctness rubric construction, and skeptical review of results were human-led throughout.
+The primitive composition map covers 30 combinations out of 
+hundreds possible. The mechanistic explanation for the Layer 0a/0b 
+distinction is unknown. The full SRM pipeline has not been 
+implemented. A trained membrane does not exist.
 
-We consider transparency about AI assistance in research tooling to be important as the field develops norms around this. The assistants were tools, not authors.
+These are not gaps to apologize for. They are directions.
+
+Specific questions we cannot pursue alone:
+
+- Does the Layer 0a/0b distinction appear in mechanistic 
+  interpretability analysis of model internals?
+- Does the activation gap scale predictably beyond 1B parameters?
+- Do the same primitives drift to the same languages across 
+  membranes trained in different primary languages?
+- What does fine-tuning a membrane on the validated composition 
+  map produce?
+- Can the primitive vocabulary serve as an output-level 
+  interpretability framework for existing language models?
+
+If you pursue any of these, we want to know what you find.
+
+---
+
+## Status
+
+| Track | Status | Description |
+|-------|--------|-------------|
+| GOG | ✓ Complete | Deterministic context isolation |
+| SRM Architecture | ✓ Validated | Structure > content as control variable |
+| Primitive Layer | ✓ Partially mapped | 11 validated Layer 1 compositions |
+| Composition Map | 🔄 In progress | 30/390+ combinations tested |
+| Trained Membrane | ⬜ Not started | Next major phase |
+| Full SRM Pipeline | ⬜ Not started | Requires composition map completion |
 
 ---
 
 ## Contributing
 
-The `TypeScriptParser` interface (`extract_imports(file_path) -> List[str]`) is designed to be extended. Parsers for Python, Go, Rust, or other languages with resolvable import graphs would expand the benchmark's applicability.
+The research is open. Replications, challenges, and extensions 
+are all welcome.
 
-Other areas: additional benchmark prompts (especially indirect natural language that stress-tests the seeder), alternative seeding strategies, evaluation against real-world repositories.
+If you find a flaw in the methodology, open an issue. If you run 
+additional experiments and get different results, open an issue. 
+If you extend the composition map, submit a pull request with your 
+data. If you run the cross-model validation on models we did not 
+test, we want to see the results.
 
 Please open an issue before submitting a large pull request.
 
 ---
 
-## Citation
+## Development process
 
+This research was conducted by a single human researcher working 
+in close collaboration with Claude, an AI assistant developed by 
+Anthropic. Experimental design, theoretical framework, core 
+insights, and research direction were conceived and driven by the 
+human researcher. Claude contributed to experimental 
+implementation, code generation, data interpretation, and writing.
+
+We consider transparency about AI assistance in research to be 
+important as the field develops norms around this. The 
+collaboration was deep and genuine. "We" in this repository means 
+both of us.
+
+---
+
+## Citation
 ```bibtex
+@misc{chisholm2026srm,
+  author = {Chisholm, D. R.},
+  title  = {Symbolic Reasoning Membrane: An Empirical Investigation 
+            of Semantic Primitives in Small Language Models},
+  year   = {2026},
+  url    = {https://github.com/dchisholm125/graph-oriented-generation}
+}
+
 @misc{chisholm2026gog,
   author = {Chisholm, D. R.},
-  title  = {Graph-Oriented Generation (GOG): Offloading AI Reasoning to Deterministic Symbolic Graphs},
+  title  = {Graph-Oriented Generation (GOG): Offloading AI Reasoning 
+            to Deterministic Symbolic Graphs},
   year   = {2026},
   url    = {https://github.com/dchisholm125/graph-oriented-generation}
 }
 ```
+
+---
+
+*The atoms of meaning are there. We have found several of them. 
+The rest are waiting.*

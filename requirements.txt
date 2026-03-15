@@ -7,4 +7,5 @@ chromadb
 sentence-transformers
 tiktoken
 numpy<2
-networkx
+matplotlib
+ollama
