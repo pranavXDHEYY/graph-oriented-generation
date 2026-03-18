@@ -1,81 +1,81 @@
 prompt,category,condition,latency_ms,fallback,rule_classes
-I miss my hometown,simple_loss,A,667.6,False,
-I miss my hometown,simple_loss,B,394.3,False,K|J
-I miss my hometown,simple_loss,C,831.5,False,K|J
-I miss my hometown,simple_loss,D,0.5,False,K|J
-My dog passed away last week,simple_loss,A,570.6,False,
-My dog passed away last week,simple_loss,B,336.8,True,__fallback__
-My dog passed away last week,simple_loss,C,795.5,True,__fallback__
+I miss my hometown,simple_loss,A,3216.1,False,
+I miss my hometown,simple_loss,B,448.5,False,K|J
+I miss my hometown,simple_loss,C,801.7,False,K|J
+I miss my hometown,simple_loss,D,0.3,False,K|J
+My dog passed away last week,simple_loss,A,520.6,False,
+My dog passed away last week,simple_loss,B,184.1,True,__fallback__
+My dog passed away last week,simple_loss,C,791.1,True,__fallback__
 My dog passed away last week,simple_loss,D,0.1,True,__fallback__
-I lost touch with my best friend,simple_loss,A,674.4,False,
-I lost touch with my best friend,simple_loss,B,632.6,True,__fallback__
-I lost touch with my best friend,simple_loss,C,861.3,True,__fallback__
+I lost touch with my best friend,simple_loss,A,581.6,False,
+I lost touch with my best friend,simple_loss,B,507.8,True,__fallback__
+I lost touch with my best friend,simple_loss,C,811.4,True,__fallback__
 I lost touch with my best friend,simple_loss,D,0.1,True,__fallback__
-My old neighborhood is completely gone now,simple_loss,A,554.9,False,
-My old neighborhood is completely gone now,simple_loss,B,244.0,False,K
-My old neighborhood is completely gone now,simple_loss,C,963.7,False,K
-My old neighborhood is completely gone now,simple_loss,D,0.5,False,K
-I wish I had spent more time with my grandparents,simple_loss,A,557.7,False,
-I wish I had spent more time with my grandparents,simple_loss,B,404.0,False,C|A
-I wish I had spent more time with my grandparents,simple_loss,C,864.7,False,C|A
+My old neighborhood is completely gone now,simple_loss,A,504.8,False,
+My old neighborhood is completely gone now,simple_loss,B,197.5,False,K
+My old neighborhood is completely gone now,simple_loss,C,766.1,False,K
+My old neighborhood is completely gone now,simple_loss,D,0.4,False,K
+I wish I had spent more time with my grandparents,simple_loss,A,516.4,False,
+I wish I had spent more time with my grandparents,simple_loss,B,298.6,False,C|A
+I wish I had spent more time with my grandparents,simple_loss,C,861.0,False,C|A
 I wish I had spent more time with my grandparents,simple_loss,D,0.1,False,C|A
-I have a big interview tomorrow,anticipatory,A,590.0,False,
-I have a big interview tomorrow,anticipatory,B,259.3,True,__fallback__
-I have a big interview tomorrow,anticipatory,C,829.7,True,__fallback__
+I have a big interview tomorrow,anticipatory,A,462.1,False,
+I have a big interview tomorrow,anticipatory,B,477.5,True,__fallback__
+I have a big interview tomorrow,anticipatory,C,754.0,True,__fallback__
 I have a big interview tomorrow,anticipatory,D,0.1,True,__fallback__
-I'm getting married next month,anticipatory,A,519.1,False,
-I'm getting married next month,anticipatory,B,561.7,False,H
-I'm getting married next month,anticipatory,C,757.9,False,H
+I'm getting married next month,anticipatory,A,586.7,False,
+I'm getting married next month,anticipatory,B,245.3,False,H
+I'm getting married next month,anticipatory,C,814.5,False,H
 I'm getting married next month,anticipatory,D,0.1,False,H
-I find out my test results today,anticipatory,A,565.6,False,
-I find out my test results today,anticipatory,B,289.6,True,__fallback__
-I find out my test results today,anticipatory,C,758.2,True,__fallback__
+I find out my test results today,anticipatory,A,532.2,False,
+I find out my test results today,anticipatory,B,348.5,True,__fallback__
+I find out my test results today,anticipatory,C,975.0,True,__fallback__
 I find out my test results today,anticipatory,D,0.1,True,__fallback__
-I'm about to move to a new city alone,anticipatory,A,536.6,False,
-I'm about to move to a new city alone,anticipatory,B,533.3,False,C
-I'm about to move to a new city alone,anticipatory,C,951.7,False,C
+I'm about to move to a new city alone,anticipatory,A,755.9,False,
+I'm about to move to a new city alone,anticipatory,B,257.8,False,C
+I'm about to move to a new city alone,anticipatory,C,1106.1,False,C
 I'm about to move to a new city alone,anticipatory,D,0.2,False,C
-I'm waiting to hear if I got the job,anticipatory,A,600.4,False,
-I'm waiting to hear if I got the job,anticipatory,B,488.5,False,G
-I'm waiting to hear if I got the job,anticipatory,C,664.1,False,G
+I'm waiting to hear if I got the job,anticipatory,A,660.8,False,
+I'm waiting to hear if I got the job,anticipatory,B,204.6,False,G
+I'm waiting to hear if I got the job,anticipatory,C,884.8,False,G
 I'm waiting to hear if I got the job,anticipatory,D,0.1,False,G
-I feel proud of my kids but also sad they're growing up so fast,complex_relational,A,527.7,False,
-I feel proud of my kids but also sad they're growing up so fast,complex_relational,B,279.8,False,D|C
-I feel proud of my kids but also sad they're growing up so fast,complex_relational,C,963.3,False,D|C
+I feel proud of my kids but also sad they're growing up so fast,complex_relational,A,591.6,False,
+I feel proud of my kids but also sad they're growing up so fast,complex_relational,B,548.2,False,D|C
+I feel proud of my kids but also sad they're growing up so fast,complex_relational,C,996.8,False,D|C
 I feel proud of my kids but also sad they're growing up so fast,complex_relational,D,0.1,False,D|C
-I deeply admire someone I can never be like,complex_relational,A,684.6,False,
-I deeply admire someone I can never be like,complex_relational,B,237.7,False,D|C
-I deeply admire someone I can never be like,complex_relational,C,905.2,False,D|C
+I deeply admire someone I can never be like,complex_relational,A,639.5,False,
+I deeply admire someone I can never be like,complex_relational,B,182.5,False,D|C
+I deeply admire someone I can never be like,complex_relational,C,805.3,False,D|C
 I deeply admire someone I can never be like,complex_relational,D,0.1,False,D|C
-I'm genuinely happy for my friend but I feel jealous too,complex_relational,A,456.3,False,
-I'm genuinely happy for my friend but I feel jealous too,complex_relational,B,333.0,False,I
-I'm genuinely happy for my friend but I feel jealous too,complex_relational,C,939.3,False,I
-I'm genuinely happy for my friend but I feel jealous too,complex_relational,D,0.1,False,I
-I feel closer to someone after they hurt me,complex_relational,A,742.3,False,
-I feel closer to someone after they hurt me,complex_relational,B,236.4,True,__fallback__
-I feel closer to someone after they hurt me,complex_relational,C,902.1,True,__fallback__
+I'm genuinely happy for my friend but I feel jealous too,complex_relational,A,479.0,False,
+I'm genuinely happy for my friend but I feel jealous too,complex_relational,B,262.4,False,I
+I'm genuinely happy for my friend but I feel jealous too,complex_relational,C,910.3,False,I
+I'm genuinely happy for my friend but I feel jealous too,complex_relational,D,0.3,False,I
+I feel closer to someone after they hurt me,complex_relational,A,660.4,False,
+I feel closer to someone after they hurt me,complex_relational,B,189.9,True,__fallback__
+I feel closer to someone after they hurt me,complex_relational,C,848.3,True,__fallback__
 I feel closer to someone after they hurt me,complex_relational,D,0.1,True,__fallback__
-I miss someone I know I'm better off without,complex_relational,A,615.2,False,
-I miss someone I know I'm better off without,complex_relational,B,196.1,False,K
-I miss someone I know I'm better off without,complex_relational,C,897.5,False,K
+I miss someone I know I'm better off without,complex_relational,A,563.4,False,
+I miss someone I know I'm better off without,complex_relational,B,296.8,False,K
+I miss someone I know I'm better off without,complex_relational,C,902.2,False,K
 I miss someone I know I'm better off without,complex_relational,D,0.1,False,K
-I still think about the life I could have lived,existential,A,666.5,False,
-I still think about the life I could have lived,existential,B,454.9,False,C|A
-I still think about the life I could have lived,existential,C,718.7,False,C|A
+I still think about the life I could have lived,existential,A,699.4,False,
+I still think about the life I could have lived,existential,B,348.5,False,C|A
+I still think about the life I could have lived,existential,C,732.5,False,C|A
 I still think about the life I could have lived,existential,D,0.1,False,C|A
-I wonder if I made the right choices,existential,A,615.1,False,
-I wonder if I made the right choices,existential,B,377.1,False,G
-I wonder if I made the right choices,existential,C,912.6,False,G
-I wonder if I made the right choices,existential,D,0.2,False,G
-I feel like time is moving too fast lately,existential,A,597.7,False,
-I feel like time is moving too fast lately,existential,B,431.4,False,L|B
-I feel like time is moving too fast lately,existential,C,845.9,False,L|B
-I feel like time is moving too fast lately,existential,D,0.2,False,L|B
-I'm proud of how far I've come but scared of what's next,existential,A,678.3,False,
-I'm proud of how far I've come but scared of what's next,existential,B,296.1,True,__fallback__
-I'm proud of how far I've come but scared of what's next,existential,C,864.5,True,__fallback__
-I'm proud of how far I've come but scared of what's next,existential,D,0.1,True,__fallback__
-I feel most alive when I'm about to lose something,existential,A,622.2,False,
-I feel most alive when I'm about to lose something,existential,B,772.8,False,C|N
-I feel most alive when I'm about to lose something,existential,C,869.4,False,C|N
+I wonder if I made the right choices,existential,A,605.6,False,
+I wonder if I made the right choices,existential,B,488.8,False,G
+I wonder if I made the right choices,existential,C,756.5,False,G
+I wonder if I made the right choices,existential,D,0.1,False,G
+I feel like time is moving too fast lately,existential,A,636.0,False,
+I feel like time is moving too fast lately,existential,B,492.8,False,B|L
+I feel like time is moving too fast lately,existential,C,791.0,False,B|L
+I feel like time is moving too fast lately,existential,D,0.2,False,B|L
+I'm proud of how far I've come but scared of what's next,existential,A,569.4,False,
+I'm proud of how far I've come but scared of what's next,existential,B,223.6,True,__fallback__
+I'm proud of how far I've come but scared of what's next,existential,C,812.7,True,__fallback__
+I'm proud of how far I've come but scared of what's next,existential,D,0.2,True,__fallback__
+I feel most alive when I'm about to lose something,existential,A,445.0,False,
+I feel most alive when I'm about to lose something,existential,B,343.7,False,C|N
+I feel most alive when I'm about to lose something,existential,C,779.9,False,C|N
 I feel most alive when I'm about to lose something,existential,D,0.1,False,C|N

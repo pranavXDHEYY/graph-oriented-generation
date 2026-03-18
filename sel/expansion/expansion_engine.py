@@ -273,26 +273,19 @@ def job_template_gap(state: dict) -> str:
     return f"TEMPLATE_GAP {concept}: +{added} templates"
 
 def job_signal_gap(state: dict) -> str:
-    primitives_data = load_primitives()
-    
-    # build list of primitives to iterate
-    if isinstance(primitives_data, dict):
-        # filter out metadata and structural keys
-        primitive_list = [k for k in primitives_data.keys()
-                         if k not in ("metadata", "categories")]
-        if not primitive_list:  # fallback if filtering removes everything
-            primitive_list = []
-    else:
-        primitive_list = ["GRIEF", "FEAR", "JOY", "WANT", "KNOW",
-                         "TIME", "PLACE", "SOMEONE", "FEEL", "MOVE",
-                         "THINK", "SAY", "DO", "HAPPEN", "GOOD", "BAD",
-                         "BIG", "SMALL", "VERY", "MORE", "LIKE", "NOT",
-                         "BECAUSE", "IF", "WHEN", "BEFORE", "AFTER",
-                         "UNDER", "SAME", "OTHER", "LIVE", "DIE",
-                         "ADMIRATION", "PRIDE", "ANGER", "SADNESS",
-                         "EXCITEMENT", "ANXIETY", "NOSTALGIA", "WONDER",
-                         "ENVY", "SHAME", "RELIEF", "DISGUST", "AWE",
-                         "SURPRISE", "GUILT", "LONELINESS", "GRATITUDE"]
+    # Use curated list of primitives — do not read from wierzbicka_primitives.json
+    primitive_list = [
+        "GRIEF", "FEAR", "JOY", "WANT", "KNOW",
+        "TIME", "PLACE", "SOMEONE", "FEEL", "MOVE",
+        "THINK", "SAY", "DO", "HAPPEN", "GOOD", "BAD",
+        "BIG", "SMALL", "VERY", "MORE", "LIKE", "NOT",
+        "BECAUSE", "IF", "WHEN", "BEFORE", "AFTER",
+        "UNDER", "SAME", "OTHER", "LIVE", "DIE",
+        "ADMIRATION", "PRIDE", "ANGER", "SADNESS",
+        "EXCITEMENT", "ANXIETY", "NOSTALGIA", "WONDER",
+        "ENVY", "SHAME", "RELIEF", "DISGUST", "AWE",
+        "SURPRISE", "GUILT", "LONELINESS", "GRATITUDE"
+    ]
     
     cursor = state["concept_cursors"].get("SIGNAL_GAP", 0)
     primitive = primitive_list[cursor % len(primitive_list)]

@@ -2,7 +2,7 @@
   "metadata": {
     "version": "2.0",
     "generated_by": "SEL expansion engine",
-    "last_updated": "2026-03-17T19:47:02.541837"
+    "last_updated": "2026-03-17T21:13:45.753934"
   },
   "templates": {
     "homesickness": {
@@ -293,6 +293,15 @@
           "The place had a sound you can't quite remember\u2014the particular way silence lived there, the quality of echo\u2014and nothing in the world now sounds quite like it did.",
           "You miss the sounds before you miss the sight\u2014the specific acoustic signature of home, the way voices traveled, the silence of particular rooms.",
           "The sounds of that place live in your body like a second language you forgot to translate, and sometimes you miss them more than the place itself."
+        ],
+        "vivified_by_distance": [
+          "Distance doesn't soften it\u2014it clarifies, sharpens, until you're not sure which memories are real and which you've perfected through the act of missing them."
+        ],
+        "embodied_knowing": [
+          "Your hands remember the shape of doorways your mind has forgotten, the weight of railings, textures your conscious self released long ago."
+        ],
+        "spectral_return": [
+          "Going back, you're the familiar stranger, moving through it like a ghost who knows every corner but can't quite touch anything anymore."
         ]
       }
     },
