@@ -1,0 +1,19 @@
+{
+  "created": "2026-03-17T17:29:53.948524",
+  "iterations": 351,
+  "job_cursor": 351,
+  "concept_cursors": {
+    "TEMPLATE_GAP": 71,
+    "SIGNAL_GAP": 70,
+    "VARIANT_GAP": 70,
+    "QUALITY_REVIEW": 70
+  },
+  "completed_jobs": {},
+  "stats": {
+    "templates_added": 244,
+    "signals_added": 373,
+    "rules_suggested": 210,
+    "variants_added": 420,
+    "templates_reviewed": 812
+  }
+}

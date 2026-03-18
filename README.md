@@ -1,3 +1,13 @@
+## Quick Start
+
+pip install requests
+ollama pull qwen2.5:0.5b
+
+python3 -c "
+from sel.core.router import process
+print(process('I miss my hometown'))
+"
+
 # Graph-Oriented Generation & Symbolic Reasoning Membrane
 ### An empirical research program into the structure of meaning
 
